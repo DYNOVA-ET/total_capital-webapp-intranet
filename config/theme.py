@@ -41,9 +41,11 @@ CUSTOM_CSS = """
         transform: translateY(-1px);
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
+    /* Sidebar clara, estilo intranet minimal */
     [data-testid="stSidebar"] {
-    background-color: #003a40 !important;
-    padding-top: 0.5rem !important;
+    background-color: #f4f4f5 !important;
+    border-right: 1px solid #e4e4e7 !important;
+    padding-top: 0.75rem !important;
     }
     [data-testid="stSidebar"] > div:first-child {
         padding-top: 0.25rem !important;
@@ -53,25 +55,91 @@ CUSTOM_CSS = """
         margin-top: 0 !important;
         padding-top: 0 !important;
     }
-    /* Menos espacio entre logo y botón en la sidebar */
     [data-testid="stSidebar"] [data-testid="stImage"],
     [data-testid="stSidebar"] .element-container:has(img) {
         margin-bottom: 0.35rem !important;
         margin-top: 0 !important;
     }
 
-    [data-testid="stSidebar"] * {
-    color: white !important;
-    
+    [data-testid="stSidebar"] {
+    color: #3f3f46 !important;
     }
-    [data-testid="stSidebar"] .stSelectbox div {
-    color: #003a40 !important;
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] small,
+    [data-testid="stSidebar"] .stMarkdown {
+    color: #52525b !important;
     }
-    /* Líneas separadoras en la sidebar en blanco */
+    [data-testid="stSidebar"] .tc-sidebar-brand-title {
+    color: #18181b !important;
+    font-family: 'Montserrat', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    margin: 0 !important;
+    }
+    [data-testid="stSidebar"] .tc-sidebar-section-label {
+    color: #a1a1aa !important;
+    font-size: 0.7rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+    margin: 1rem 0 0.4rem 0 !important;
+    }
     [data-testid="stSidebar"] hr {
-        border-color: #ffffff !important;
-        background-color: #ffffff !important;
-        opacity: 0.9 !important;
+        border-color: #e4e4e7 !important;
+        background-color: #e4e4e7 !important;
+        opacity: 1 !important;
+        margin: 0.75rem 0 !important;
+    }
+
+    /* Filas de navegación (icono + botón en columnas): bloques horizontales en la sidebar */
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        align-items: center !important;
+        gap: 0.35rem !important;
+        margin-bottom: 0.08rem !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
+        flex: 0 0 2rem !important;
+        width: 2rem !important;
+        min-width: 2rem !important;
+        max-width: 2rem !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .tc-nav-icon-wrap {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        color: #3f3f46 !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .tc-nav-icon-wrap svg {
+        stroke: #3f3f46 !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton {
+        width: 100% !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button {
+        width: 100% !important;
+        text-align: left !important;
+        justify-content: flex-start !important;
+        background-color: transparent !important;
+        color: #27272a !important;
+        border: none !important;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+        font-weight: 500 !important;
+        font-size: 0.9rem !important;
+        padding: 0.45rem 0.65rem !important;
+        min-height: 2.25rem !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button:hover {
+        background-color: #e4e4e7 !important;
+        color: #18181b !important;
+        border: none !important;
+        transform: none !important;
+    }
+
+    [data-testid="stSidebar"] .stSelectbox div {
+    color: #27272a !important;
     }
     
     /* Títulos usando Montserrat y color Primario */
