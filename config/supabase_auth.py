@@ -6,10 +6,19 @@ Este módulo se usa desde Streamlit. Lee credenciales desde `st.secrets`.
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from urllib.parse import urlencode
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
 
 def _get_supabase_secrets() -> dict[str, str]:
@@ -70,6 +79,13 @@ def _supabase_request_json(
             raw = e.read().decode("utf-8")  # type: ignore[union-attr]
         except Exception:
             raw = ""
+        logger.warning(
+            "Supabase HTTP %s %s -> %s body=%s",
+            method,
+            url,
+            getattr(e, "code", "?"),
+            (raw[:800] + "…") if len(raw) > 800 else raw,
+        )
         try:
             err = json.loads(raw) if raw else {}
         except Exception:
@@ -372,21 +388,33 @@ def supabase_admin_update_user_password(
     if not new_password:
         return False, "new_password requerido."
 
-    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/admin/user/{user_id}"
+    uid = str(user_id).strip()
+    # Hosted Supabase usa plural: /admin/users/{id} (el singular /admin/user/ devuelve 404).
+    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/admin/users/{uid}"
     payload: dict[str, Any] = {"password": new_password}
     if email_confirm is not None:
         payload["email_confirm"] = email_confirm
 
+    logger.info(
+        "admin_update_password: PUT auth/v1/admin/users/%s (sin loguear contraseña)",
+        uid,
+    )
     try:
         data = _supabase_request_json(
             method="PUT",
             endpoint=endpoint,
-            anon_key=cfg["service_role_key"],
+            anon_key=cfg["anon_key"],
             access_token=cfg["service_role_key"],
             query_params=None,
             payload=payload,
         )
+        logger.info(
+            "admin_update_password: OK user_id=%s updated_at=%s",
+            uid,
+            (data or {}).get("updated_at") if isinstance(data, dict) else "?",
+        )
         return True, data
     except Exception as e:
+        logger.exception("admin_update_password: falló user_id=%s: %s", uid, e)
         return False, str(e)
 
