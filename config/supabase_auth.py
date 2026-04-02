@@ -21,12 +21,17 @@ def _get_supabase_secrets() -> dict[str, str]:
         secrets = {}
     url = secrets.get("url")
     anon_key = secrets.get("anon_key")
+    service_role_key = secrets.get("service_role_key")
     if not url or not anon_key:
         raise ValueError(
             "Faltan credenciales de Supabase en `.streamlit/secrets.toml`: "
             "asegúrate de definir [supabase].url y [supabase].anon_key."
         )
-    return {"url": str(url), "anon_key": str(anon_key)}
+    return {
+        "url": str(url),
+        "anon_key": str(anon_key),
+        "service_role_key": str(service_role_key) if service_role_key else "",
+    }
 
 
 def _supabase_request_json(
@@ -290,6 +295,96 @@ def supabase_rest_delete(
             access_token=access_token,
             query_params=query_params,
             payload=None,
+        )
+        return True, data
+    except Exception as e:
+        return False, str(e)
+
+
+def supabase_admin_create_user(
+    *,
+    email: str,
+    password: str,
+    full_name: str,
+    role_name: str,
+    departments: list[str],
+    email_confirm: bool = True,
+) -> tuple[bool, Any | str]:
+    """Crea un usuario en Supabase Auth usando service_role_key (solo backend).
+
+    Espera que tu trigger use `raw_user_meta_data.role` y `raw_user_meta_data.departments`.
+    """
+    cfg = _get_supabase_secrets()
+    if not cfg.get("service_role_key"):
+        return False, "Falta [supabase].service_role_key en `.streamlit/secrets.toml`."
+
+    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/admin/users"
+
+    email = (email or "").strip().lower()
+    if not email:
+        return False, "Email requerido."
+    if not password:
+        return False, "Contraseña requerida."
+
+    username = email.split("@", 1)[0].strip().lower() or email
+
+    payload = {
+        "email": email,
+        "password": password,
+        # No manda correo de confirmación si está soportado por tu configuración.
+        "email_confirm": email_confirm,
+        "user_metadata": {
+            "username": username,
+            "name": (full_name or "").strip() or username,
+            "role": role_name,
+            "departments": departments,
+        },
+    }
+
+    try:
+        data = _supabase_request_json(
+            method="POST",
+            endpoint=endpoint,
+            anon_key=cfg["service_role_key"],  # apikey header
+            access_token=cfg["service_role_key"],  # Authorization bearer
+            payload=payload,
+        )
+        return True, data
+    except Exception as e:
+        return False, str(e)
+
+
+def supabase_admin_update_user_password(
+    *,
+    user_id: str,
+    new_password: str,
+    email_confirm: bool | None = None,
+) -> tuple[bool, Any | str]:
+    """Actualiza la contraseña de un usuario en Supabase Auth (GoTrue) usando service_role_key.
+
+    Requiere que el usuario tenga autenticación por email/password.
+    """
+    cfg = _get_supabase_secrets()
+    if not cfg.get("service_role_key"):
+        return False, "Falta [supabase].service_role_key en `.streamlit/secrets.toml`."
+    if not user_id:
+        return False, "user_id requerido."
+    if not new_password:
+        return False, "new_password requerido."
+
+    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/admin/user/{user_id}"
+    payload: dict[str, Any] = {"password": new_password}
+    if email_confirm is not None:
+        payload["email_confirm"] = email_confirm
+
+    try:
+        data = _supabase_request_json(
+            method="PUT",
+            endpoint=endpoint,
+            anon_key=cfg["service_role_key"],
+            access_token=cfg["service_role_key"],
+            query_params=None,
+            payload=payload,
         )
         return True, data
     except Exception as e:

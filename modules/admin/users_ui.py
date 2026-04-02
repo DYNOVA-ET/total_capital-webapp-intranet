@@ -14,6 +14,8 @@ from config.supabase_auth import (
     supabase_rest_patch,
     supabase_rest_post,
     supabase_rest_select,
+    supabase_admin_create_user,
+    supabase_admin_update_user_password,
 )
 
 
@@ -51,6 +53,56 @@ def render(*, access_token: str, current_user_id: str) -> None:
 
     role_id_to_name = {str(r["id"]): str(r["name"]) for r in roles}
     dept_id_to_name = {str(d["id"]): str(d["name"]) for d in departments}
+
+    # 0) Crear usuario (admin)
+    @st.dialog("Crear usuario")
+    def _create_user_dialog() -> None:
+        st.caption("Se crea el usuario en Supabase Auth y se poblarán tablas con el trigger.")
+
+        with st.form("form_create_user", clear_on_submit=False):
+            full_name = st.text_input("Nombre", placeholder="SEBASTIAN VALLEJO")
+            email = st.text_input("Correo", placeholder="sebastian@dynovaet.com")
+            role_name = st.selectbox(
+                "Rol",
+                options=[r["name"] for r in roles],
+                index=([r["name"] for r in roles].index("user") if "user" in [r["name"] for r in roles] else 0),
+            )
+            dept_names = st.multiselect(
+                "Departamentos",
+                options=[d["name"] for d in departments],
+                default=[d["name"] for d in departments if d["name"] == "General"],
+            )
+            password = st.text_input("Contraseña", type="password")
+
+            submitted = st.form_submit_button("Crear usuario")
+            if submitted:
+                if not full_name or not email or not password:
+                    st.error("Nombre, correo y contraseña son obligatorios.")
+                    return
+                if not dept_names:
+                    st.error("Selecciona al menos un departamento.")
+                    return
+
+                ok, res = supabase_admin_create_user(
+                    email=email,
+                    password=password,
+                    full_name=full_name,
+                    role_name=role_name,
+                    departments=dept_names,
+                    email_confirm=True,
+                )
+                if not ok:
+                    st.error(f"No se pudo crear el usuario: {res}")
+                    return
+
+                try:
+                    st.toast("Usuario creado con éxito.")
+                except Exception:
+                    st.success("Usuario creado con éxito.")
+                st.rerun()
+
+    if st.button("Crear usuario", use_container_width=True):
+        _create_user_dialog()
 
     # 2) Lista de usuarios
     users_select = "id,full_name,email,role_id,active"
@@ -102,6 +154,10 @@ def render(*, access_token: str, current_user_id: str) -> None:
 
     selected_full_name = st.text_input("Nombre", value=str(selected_user.get("full_name") or ""))
     selected_email = st.text_input("Email", value=str(selected_user.get("email") or ""), disabled=True)
+
+    # Cambiar contraseña
+    st.markdown("### Cambiar contraseña")
+    new_password = st.text_input("Nueva contraseña", type="password", placeholder="Ej: 12345678")
 
     # Active/Inactive
     selected_active = st.checkbox("Activo", value=bool(selected_user.get("active", True)))
@@ -181,5 +237,26 @@ def render(*, access_token: str, current_user_id: str) -> None:
             st.toast("Cambios guardados con éxito.")
         except Exception:
             st.success("Cambios guardados con éxito.")
+        st.rerun()
+
+    # Botón independiente para cambiar contraseña (para no mezclar con guardar info).
+    if st.button("Cambiar contraseña", use_container_width=True):
+        if not new_password:
+            st.error("Ingresa una nueva contraseña.")
+            st.stop()
+
+        ok, res = supabase_admin_update_user_password(
+            user_id=selected_user_id,
+            new_password=new_password,
+            email_confirm=None,
+        )
+        if not ok:
+            st.error(f"No se pudo cambiar la contraseña: {res}")
+            return
+
+        try:
+            st.toast("Contraseña actualizada con éxito.")
+        except Exception:
+            st.success("Contraseña actualizada con éxito.")
         st.rerun()
 
