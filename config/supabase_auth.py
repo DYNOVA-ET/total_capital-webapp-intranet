@@ -189,3 +189,109 @@ def supabase_rest_select(
     except Exception as e:
         return False, str(e)
 
+
+def supabase_rest_patch(
+    *,
+    table_or_view: str,
+    access_token: str,
+    query_params: dict[str, str],
+    payload: dict[str, Any],
+) -> tuple[bool, Any | str]:
+    """PATCH genérico contra PostgREST respetando RLS."""
+    cfg = _get_supabase_secrets()
+    endpoint = f"{cfg['url'].rstrip('/')}/rest/v1/{table_or_view.lstrip('/')}"
+
+    try:
+        data = _supabase_request_json(
+            method="PATCH",
+            endpoint=endpoint,
+            anon_key=cfg["anon_key"],
+            access_token=access_token,
+            query_params=query_params,
+            payload=payload,
+        )
+        return True, data
+    except Exception as e:
+        return False, str(e)
+
+
+def supabase_rest_post(
+    *,
+    table_or_view: str,
+    access_token: str,
+    query_params: dict[str, str] | None,
+    payload: list[dict[str, Any]],
+    prefer_merge_duplicates: bool = True,
+) -> tuple[bool, Any | str]:
+    """POST/Upsert genérico contra PostgREST (recomendado con Prefer resolution=merge-duplicates)."""
+    cfg = _get_supabase_secrets()
+    endpoint = f"{cfg['url'].rstrip('/')}/rest/v1/{table_or_view.lstrip('/')}"
+
+    headers_extra: dict[str, str] = {}
+    if prefer_merge_duplicates:
+        # Compatibilidad con PostgREST: evita duplicados si existe la PK.
+        headers_extra["Prefer"] = "resolution=merge-duplicates"
+
+    # Reutilizamos el request helper pero sin soporte de headers extra; implementamos mínimo aquí.
+    url = endpoint
+    if query_params:
+        url = f"{url}?{urlencode(query_params, doseq=True)}"
+
+    req_headers: dict[str, str] = {
+        "apikey": cfg["anon_key"],
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    req_headers.update(headers_extra)
+    if access_token:
+        req_headers["Authorization"] = f"Bearer {access_token}"
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, method="POST", headers=req_headers, data=data)
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read().decode("utf-8") if resp is not None else ""
+            return True, json.loads(body) if body else None
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8")  # type: ignore[union-attr]
+        except Exception:
+            raw = ""
+        try:
+            err = json.loads(raw) if raw else {}
+        except Exception:
+            err = {}
+        if isinstance(err, dict):
+            msg = err.get("error_description") or err.get("msg") or err.get("error") or raw or str(e)
+        else:
+            msg = raw or str(e)
+        return False, msg
+    except Exception as e:
+        return False, str(e)
+
+
+def supabase_rest_delete(
+    *,
+    table_or_view: str,
+    access_token: str,
+    query_params: dict[str, str],
+) -> tuple[bool, Any | str]:
+    """DELETE genérico contra PostgREST respetando RLS."""
+    cfg = _get_supabase_secrets()
+    endpoint = f"{cfg['url'].rstrip('/')}/rest/v1/{table_or_view.lstrip('/')}"
+
+    try:
+        data = _supabase_request_json(
+            method="DELETE",
+            endpoint=endpoint,
+            anon_key=cfg["anon_key"],
+            access_token=access_token,
+            query_params=query_params,
+            payload=None,
+        )
+        return True, data
+    except Exception as e:
+        return False, str(e)
+

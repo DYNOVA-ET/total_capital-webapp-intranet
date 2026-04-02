@@ -8,6 +8,7 @@ import streamlit as st
 from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS
 from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_sign_up
 from modules.admin import admin_ui
+from modules.admin.users_ui import render as render_users_ui
 
 st.set_page_config(
     page_title="Total Capital Intranet",
@@ -181,10 +182,18 @@ try:
     ok, users_rows = supabase_rest_select(
         table_or_view="users",
         access_token=access_token,
-        query_params={"select": "id,full_name,role_id", "id": f"eq.{user_id}", "limit": "1"},
+        query_params={"select": "id,full_name,role_id,active", "id": f"eq.{user_id}", "limit": "1"},
     )
     if not ok:
-        raise RuntimeError(str(users_rows))
+        # Fallback si aún no existe la columna `active` en tu tabla.
+        if "active" in str(users_rows):
+            ok, users_rows = supabase_rest_select(
+                table_or_view="users",
+                access_token=access_token,
+                query_params={"select": "id,full_name,role_id", "id": f"eq.{user_id}", "limit": "1"},
+            )
+        if not ok:
+            raise RuntimeError(str(users_rows))
     if not users_rows:
         st.error("Tu usuario no existe en `public.users`. Contacta con un admin.")
         st.session_state.pop("supabase_access_token", None)
@@ -194,6 +203,12 @@ try:
     user_row = users_rows[0]
     full_name = user_row.get("full_name") or st.session_state.get("supabase_email") or user_id
     role_id = user_row.get("role_id")
+    user_active = bool(user_row.get("active", True))
+    if not user_active:
+        st.error("Tu cuenta está desactivada. Contacta a un admin.")
+        st.session_state.pop("supabase_access_token", None)
+        st.session_state.pop("supabase_user_id", None)
+        st.stop()
 
     ok, role_rows = supabase_rest_select(
         table_or_view="roles",
@@ -253,6 +268,15 @@ try:
         st.session_state.pop("supabase_access_token", None)
         st.session_state.pop("supabase_user_id", None)
         st.rerun()
+
+    if role_name == "admin":
+        seccion = st.sidebar.radio("Sección", ["Herramientas", "Usuarios"], index=0)
+    else:
+        seccion = "Herramientas"
+
+    if seccion == "Usuarios":
+        render_users_ui(access_token=access_token, current_user_id=user_id)
+        st.stop()
 
     departamento = st.sidebar.selectbox(
         "Departamento",
