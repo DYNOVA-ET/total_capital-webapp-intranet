@@ -5,6 +5,7 @@ import re
 import streamlit as st
 import pandas as pd
 from modules.admin import admin_logic
+from config.email_sender import is_email_configured, send_email_with_attachment
 
 # Bancos disponibles
 BANCOS = {

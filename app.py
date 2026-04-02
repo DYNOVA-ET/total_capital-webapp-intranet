@@ -6,7 +6,7 @@ from pathlib import Path
 import streamlit as st
 
 from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS
-from config.auth import load_credentials, get_user_department, register_user
+from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_sign_up
 from modules.admin import admin_ui
 
 st.set_page_config(
@@ -19,138 +19,244 @@ st.set_page_config(
 # Inyectar CSS personalizado
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Cargar credenciales y autenticar
-config = load_credentials()
-if not config:
-    st.error(
-        "No se encontró credentials.yaml. "
-        "Copia config/credentials.yaml.example a config/credentials.yaml y configura los usuarios."
-    )
+# Flujo de registro (Supabase) - NO depende de credentials.yaml
+if st.query_params.get("page") == "register":
+    st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown('<div class="login-page">', unsafe_allow_html=True)
+    col_left, col_right = st.columns([1, 1])
+
+    logo_path = Path(__file__).parent / "assets" / "logo.png"
+
+    def _render_branding(logo_path: Path) -> None:
+        logo_b64 = ""
+        if logo_path.exists():
+            with open(logo_path, "rb") as f:
+                logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+        st.markdown(
+            '<div class="login-branding-box">'
+            + (
+                f'<img src="data:image/png;base64,{logo_b64}" alt="Total Capital" class="login-branding-logo"/>'
+                if logo_b64
+                else ""
+            )
+            + '<h3 class="login-branding-title">Bienvenido a Total Capital</h3>'
+            + '<p class="login-branding-subtitle">Intranet de automatización y herramientas internas.</p>'
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+
+    with col_left:
+        st.subheader("Crear cuenta")
+        st.markdown(
+            '<p class="login-register-prompt">¿Ya tienes cuenta? <a href="?">Inicia sesión</a></p>',
+            unsafe_allow_html=True,
+        )
+        with st.form("form_register", clear_on_submit=True):
+            reg_username = st.text_input("Usuario", key="reg_username", placeholder="ej: mi_usuario")
+            reg_password = st.text_input(
+                "Contraseña", type="password", key="reg_password", placeholder="Elige una contraseña"
+            )
+            reg_name = st.text_input("Nombre (opcional)", key="reg_name", placeholder="Tu nombre")
+            reg_department = st.selectbox(
+                "Departamento",
+                options=["General", "Administración", "RRHH", "Ventas"],
+                key="reg_department",
+            )
+            submitted = st.form_submit_button("Registrarme")
+            if submitted:
+                if not reg_username or not reg_password:
+                    st.error("Usuario y contraseña son obligatorios.")
+                else:
+                    username = reg_username.strip().lower()
+                    email = username if "@" in username else f"{username}@totalcapital.com"
+                    user_metadata = {
+                        "username": username,
+                        "name": (reg_name or reg_username).strip() or username,
+                        "department": reg_department,
+                    }
+                    ok, msg = supabase_sign_up(email=email, password=reg_password, user_metadata=user_metadata)
+                    if ok:
+                        st.success(msg)
+                        st.info("Luego de confirmar el correo, inicia sesión.")
+                        st.query_params.clear()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    with col_right:
+        _render_branding(logo_path)
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-try:
-    import streamlit_authenticator as stauth
+# Login / sesión con Supabase Auth
+def _normalize_email(user_or_email: str) -> str:
+    value = (user_or_email or "").strip().lower()
+    if not value:
+        return ""
+    if "@" in value:
+        return value
+    # Compatibilidad con tu register actual: usuario -> usuario@totalcapital.com
+    return f"{value}@totalcapital.com"
 
-    authenticator = stauth.Authenticate(
-        config["credentials"],
-        config["cookie"]["name"],
-        config["cookie"]["key"],
-        config["cookie"]["expiry_days"],
+
+access_token = st.session_state.get("supabase_access_token")
+user_id = st.session_state.get("supabase_user_id")
+
+logo_path = Path(__file__).parent / "assets" / "logo.png"
+
+
+def _render_branding(logo_path: Path) -> None:
+    logo_b64 = ""
+    if logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+    st.markdown(
+        '<div class="login-branding-box">'
+        + (
+            f'<img src="data:image/png;base64,{logo_b64}" alt="Total Capital" class="login-branding-logo"/>'
+            if logo_b64
+            else ""
+        )
+        + '<h3 class="login-branding-title">Bienvenido a Total Capital</h3>'
+        + '<p class="login-branding-subtitle">Intranet de automatización y herramientas internas.</p>'
+        + "</div>",
+        unsafe_allow_html=True,
     )
 
-    name = st.session_state.get("name")
-    authentication_status = st.session_state.get("authentication_status")
-    username = st.session_state.get("username")
 
-    if authentication_status is None or authentication_status is False:
-        logo_path = Path(__file__).parent / "assets" / "logo.png"
-
-        def _render_branding(logo_path):
-            logo_b64 = ""
-            if logo_path.exists():
-                with open(logo_path, "rb") as f:
-                    logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-            st.markdown(
-                '<div class="login-branding-box">'
-                + (
-                    f'<img src="data:image/png;base64,{logo_b64}" alt="Total Capital" class="login-branding-logo"/>'
-                    if logo_b64
-                    else ""
-                )
-                + '<h3 class="login-branding-title">Bienvenido a Total Capital</h3>'
-                + '<p class="login-branding-subtitle">Intranet de automatización y herramientas internas.</p>'
-                + "</div>",
-                unsafe_allow_html=True,
+if not access_token or not user_id:
+    st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown('<div class="login-page">', unsafe_allow_html=True)
+    col_left, col_right = st.columns([1, 1])
+    with col_left:
+        st.subheader("Iniciar sesión")
+        with st.form("form_login", clear_on_submit=True):
+            login_user = st.text_input(
+                "Usuario o email",
+                key="login_user",
+                placeholder="ej: mi_usuario o correo@dominio.com",
             )
-
-        if st.query_params.get("page") == "register":
-            st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
-            st.markdown('<div class="login-page">', unsafe_allow_html=True)
-            col_left, col_right = st.columns([1, 1])
-            with col_left:
-                st.subheader("Crear cuenta")
-                st.markdown(
-                    '<p class="login-register-prompt">¿Ya tienes cuenta? <a href="?">Inicia sesión</a></p>',
-                    unsafe_allow_html=True,
-                )
-                with st.form("form_register", clear_on_submit=True):
-                    reg_username = st.text_input("Usuario", key="reg_username", placeholder="ej: mi_usuario")
-                    reg_password = st.text_input("Contraseña", type="password", key="reg_password", placeholder="Elige una contraseña")
-                    reg_name = st.text_input("Nombre (opcional)", key="reg_name", placeholder="Tu nombre")
-                    reg_department = st.selectbox(
-                        "Departamento",
-                        options=["General", "Administración", "RRHH", "Ventas"],
-                        key="reg_department",
-                    )
-                    submitted = st.form_submit_button("Registrarme")
-                    if submitted:
-                        if reg_username and reg_password:
-                            ok, msg = register_user(
-                                username=reg_username,
-                                password=reg_password,
-                                name=reg_name or reg_username,
-                                department=reg_department,
-                            )
-                            if ok:
-                                st.success(msg)
-                                st.info("Redirigiendo al inicio de sesión…")
-                                st.query_params.clear()
-                                st.rerun()
-                            else:
-                                st.error(msg)
+            login_password = st.text_input(
+                "Contraseña",
+                type="password",
+                key="login_password",
+                placeholder="Tu contraseña",
+            )
+            submitted = st.form_submit_button("Ingresar")
+            if submitted:
+                email = _normalize_email(login_user)
+                if not email or not login_password:
+                    st.error("Usuario/email y contraseña son obligatorios.")
+                else:
+                    ok, data_or_msg = supabase_sign_in(email=email, password=login_password)
+                    if not ok:
+                        st.error(str(data_or_msg))
+                    else:
+                        data = data_or_msg
+                        access_token = data.get("access_token")
+                        user_obj = data.get("user") or {}
+                        new_user_id = user_obj.get("id")
+                        if access_token and new_user_id:
+                            st.session_state["supabase_access_token"] = access_token
+                            st.session_state["supabase_user_id"] = new_user_id
+                            st.session_state["supabase_email"] = user_obj.get("email") or email
+                            st.rerun()
                         else:
-                            st.error("Usuario y contraseña son obligatorios.")
-            with col_right:
-                _render_branding(logo_path)
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.stop()
+                            st.error("Sesión inválida: Supabase no devolvió usuario/token.")
 
-        st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
-        st.markdown('<div class="login-page">', unsafe_allow_html=True)
-        col_left, col_right = st.columns([1, 1])
-        with col_left:
-            st.subheader("Iniciar sesión")
-            authenticator.login("main", key="Iniciar sesión")
-            if st.session_state.get("authentication_status") is True:
-                st.rerun()
-            if authentication_status is False:
-                st.error("Usuario o contraseña incorrectos.")
-            elif authentication_status is None:
-                st.warning("Por favor ingresa tu usuario y contraseña.")
-            st.markdown("---")
-            st.markdown(
-                '<p class="login-register-prompt">¿No tienes cuenta? <a href="?page=register">Regístrate</a></p>',
-                unsafe_allow_html=True,
-            )
-        with col_right:
-            _render_branding(logo_path)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown(
+            '<p class="login-register-prompt">¿No tienes cuenta? <a href="?page=register">Regístrate</a></p>',
+            unsafe_allow_html=True,
+        )
+
+    with col_right:
+        _render_branding(logo_path)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+# Usuario autenticado
+try:
+    ok, users_rows = supabase_rest_select(
+        table_or_view="users",
+        access_token=access_token,
+        query_params={"select": "id,full_name,role_id", "id": f"eq.{user_id}", "limit": "1"},
+    )
+    if not ok:
+        raise RuntimeError(str(users_rows))
+    if not users_rows:
+        st.error("Tu usuario no existe en `public.users`. Contacta con un admin.")
+        st.session_state.pop("supabase_access_token", None)
+        st.session_state.pop("supabase_user_id", None)
         st.stop()
 
-    # Usuario autenticado
-    # Barra lateral - Logo arriba del botón de cerrar sesión
-    logo_path = Path(__file__).parent / "assets" / "logo.png"
+    user_row = users_rows[0]
+    full_name = user_row.get("full_name") or st.session_state.get("supabase_email") or user_id
+    role_id = user_row.get("role_id")
+
+    ok, role_rows = supabase_rest_select(
+        table_or_view="roles",
+        access_token=access_token,
+        query_params={"select": "name", "id": f"eq.{role_id}", "limit": "1"},
+    )
+    role_name = "user"
+    if ok and role_rows:
+        role_name = role_rows[0].get("name") or "user"
+
+    # Departamentos disponibles para el usuario
+    departamento_options: list[str] = []
+    if role_name == "admin":
+        ok, dept_rows = supabase_rest_select(
+            table_or_view="departments",
+            access_token=access_token,
+            query_params={"select": "name", "order": "name"},
+        )
+        if ok:
+            departamento_options = [str(r.get("name")) for r in dept_rows if r.get("name")]
+    else:
+        ok, ud_rows = supabase_rest_select(
+            table_or_view="user_departments",
+            access_token=access_token,
+            query_params={"select": "department_id", "user_id": f"eq.{user_id}"},
+        )
+        dept_ids = []
+        if ok:
+            for r in ud_rows:
+                if r.get("department_id"):
+                    dept_ids.append(str(r["department_id"]))
+
+        if dept_ids:
+            ids_param = ",".join(dept_ids)
+            ok, dept_rows = supabase_rest_select(
+                table_or_view="departments",
+                access_token=access_token,
+                query_params={"select": "name", "id": f"in.({ids_param})", "order": "name"},
+            )
+            if ok:
+                departamento_options = [str(r.get("name")) for r in dept_rows if r.get("name")]
+
+    if not departamento_options:
+        st.warning("No se encontraron departamentos para tu usuario.")
+        st.stop()
+
+    # Barra lateral
     if logo_path.exists():
         st.sidebar.image(str(logo_path), width=140)
-    authenticator.logout("Cerrar sesión", "sidebar")
     st.sidebar.markdown("---")
     st.sidebar.title("Total Capital")
-    st.sidebar.markdown(f"**Hola, {name}**")
+    st.sidebar.markdown(f"**Hola, {full_name}**")
+    st.sidebar.markdown(f"Rol: `{role_name}`")
     st.sidebar.markdown("---")
 
-    user_dept = get_user_department(username)
-    all_depts = ["Administración", "RRHH", "Ventas"]
-    # Si el usuario tiene departamento asignado, filtrar opciones (o mostrar solo el suyo)
-    dept_options = [user_dept] if user_dept else all_depts
-    default_idx = 0
-    if user_dept:
-        default_idx = all_depts.index(user_dept) if user_dept in all_depts else 0
-        dept_options = all_depts  # Permitir ver todos los departamentos
+    if st.sidebar.button("Cerrar sesión", use_container_width=True):
+        st.session_state.pop("supabase_access_token", None)
+        st.session_state.pop("supabase_user_id", None)
+        st.rerun()
 
     departamento = st.sidebar.selectbox(
         "Departamento",
-        options=all_depts,
-        index=default_idx,
+        options=departamento_options,
         help="Selecciona el departamento para acceder a sus herramientas.",
     )
 
@@ -162,14 +268,14 @@ try:
         "Administración": admin_ui.render,
         "RRHH": lambda: st.info("Módulo RRHH - Próximamente."),
         "Ventas": lambda: st.info("Módulo Ventas - Próximamente."),
+        "Legal": lambda: st.info("Módulo Legal - Próximamente."),
     }
 
     render_fn = MODULES.get(departamento)
     if render_fn:
         render_fn()
     else:
-        st.warning("Selecciona un departamento en la barra lateral.")
-
+        st.warning(f"No hay módulo implementado para: {departamento}")
 except Exception as e:
-    st.error(f"Error al cargar autenticación: {e}")
-    st.info("Verifica que config/credentials.yaml existe y tiene el formato correcto.")
+    st.error(f"Error al cargar sesión Supabase: {e}")
+    st.info("Revisa que las tablas `public.users`, `public.roles`, `public.departments` y `public.user_departments` existan y que RLS permita leer los datos del usuario.")
