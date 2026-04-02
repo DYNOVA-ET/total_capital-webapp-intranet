@@ -5,12 +5,9 @@ Requiere que el rol del usuario autenticado sea `admin` según `public.users.rol
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import streamlit as st
-
-logger = logging.getLogger(__name__)
 
 from config.supabase_auth import (
     supabase_rest_delete,
@@ -248,20 +245,14 @@ def render(*, access_token: str, current_user_id: str) -> None:
             st.error("Ingresa una nueva contraseña.")
             st.stop()
 
-        logger.info(
-            "UI: intento cambiar contraseña (user_id=%s, sin loguear contraseña)",
-            selected_user_id,
-        )
         ok, res = supabase_admin_update_user_password(
             user_id=selected_user_id,
             new_password=new_password,
             email_confirm=None,
         )
         if not ok:
-            logger.warning("UI: cambio de contraseña falló user_id=%s: %s", selected_user_id, res)
             st.error(f"No se pudo cambiar la contraseña: {res}")
             return
-        logger.info("UI: contraseña actualizada OK user_id=%s", selected_user_id)
 
         try:
             st.toast("Contraseña actualizada con éxito.")
