@@ -92,50 +92,104 @@ CUSTOM_CSS = """
         margin: 0.75rem 0 !important;
     }
 
-    /* Filas de navegación (icono + botón en columnas): bloques horizontales en la sidebar */
+    /* Navegación lateral: fila icono (columna fija) + botón (solo texto) */
     [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {
         display: flex !important;
-        align-items: center !important;
-        gap: 0.35rem !important;
+        align-items: stretch !important;
+        gap: 0.2rem !important;
         margin-bottom: 0.08rem !important;
     }
     [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:first-child {
-        flex: 0 0 2rem !important;
-        width: 2rem !important;
-        min-width: 2rem !important;
-        max-width: 2rem !important;
+        flex: 0 0 1.75rem !important;
+        width: 1.75rem !important;
+        min-width: 1.75rem !important;
+        max-width: 1.75rem !important;
     }
-    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .tc-nav-icon-wrap {
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-child {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] div[data-testid="element-container"] {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+    [data-testid="stSidebar"] .tc-nav-icon-cell {
         display: flex !important;
         align-items: center !important;
-        justify-content: center !important;
-        color: #3f3f46 !important;
+        justify-content: flex-start !important;
+        min-height: 2.25rem !important;
+        padding-left: 0.15rem !important;
     }
-    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .tc-nav-icon-wrap svg {
-        stroke: #3f3f46 !important;
+    [data-testid="stSidebar"] .tc-nav-icon-cell img {
+        display: block !important;
+        width: 1.25rem !important;
+        height: 1.25rem !important;
+        object-fit: contain !important;
     }
     [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton {
         width: 100% !important;
     }
     [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button {
+        display: flex !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
         width: 100% !important;
         text-align: left !important;
-        justify-content: flex-start !important;
         background-color: transparent !important;
         color: #27272a !important;
         border: none !important;
         border-radius: 8px !important;
+        border-left: 3px solid transparent !important;
         box-shadow: none !important;
         font-weight: 500 !important;
         font-size: 0.9rem !important;
-        padding: 0.45rem 0.65rem !important;
+        padding: 0.45rem 0.5rem 0.45rem 0.35rem !important;
         min-height: 2.25rem !important;
+        box-sizing: border-box !important;
     }
     [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button:hover {
         background-color: #e4e4e7 !important;
         color: #18181b !important;
         border: none !important;
+        border-left: 3px solid transparent !important;
         transform: none !important;
+        box-shadow: none !important;
+    }
+    /* Ítem activo */
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="baseButton-primary"],
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="stBaseButton-primary"] {
+        background-color: #e4e4e7 !important;
+        color: #003a40 !important;
+        border: none !important;
+        border-left: 3px solid #003a40 !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="baseButton-primary"]:hover,
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] .stButton > button[data-testid="stBaseButton-primary"]:hover {
+        background-color: #d4d4d8 !important;
+        color: #003a40 !important;
+        border-left: 3px solid #003a40 !important;
+    }
+    /* Fila activa: barra y fondo en toda la fila (icono + botón) */
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="baseButton-primary"]),
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="stBaseButton-primary"]) {
+        background-color: #e4e4e7 !important;
+        border-radius: 8px !important;
+        border-left: 3px solid #003a40 !important;
+        box-sizing: border-box !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="baseButton-primary"]):hover,
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="stBaseButton-primary"]):hover {
+        background-color: #d4d4d8 !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="baseButton-primary"]) .stButton > button,
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="stBaseButton-primary"]) .stButton > button {
+        background-color: transparent !important;
+        border-left-color: transparent !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="baseButton-primary"]) .stButton > button:hover,
+    [data-testid="stSidebar"] div[data-testid="stHorizontalBlock"]:has(.stButton > button[data-testid="stBaseButton-primary"]) .stButton > button:hover {
+        background-color: transparent !important;
+        border-left-color: transparent !important;
     }
 
     [data-testid="stSidebar"] .stSelectbox div {

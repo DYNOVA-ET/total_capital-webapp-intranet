@@ -11,7 +11,7 @@ from config.auth_cookie import (
     restore_supabase_session_from_cookie,
 )
 from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS
-from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_sign_up
+from config.supabase_auth import supabase_rest_select, supabase_sign_in
 from modules.admin import admin_ui
 from modules.admin.users_ui import render as render_users_ui
 
@@ -61,21 +61,24 @@ def _icon_for_department(name: str) -> str:
     return ICO_BUILDING
 
 
-def _sidebar_nav_row(icon_html: str, label: str, button_key: str, *, active: bool) -> bool:
-    """Una fila de menú: icono + botón. Devuelve True si el botón se pulsó en este run."""
-    ic, bc = st.sidebar.columns([0.14, 0.86])
+def _sidebar_nav_row(icon_svg: str, label: str, button_key: str, *, active: bool) -> bool:
+    """Fila de menú: columna fija con icono + botón solo con texto (evita centrado de Streamlit)."""
+    ic, bc = st.sidebar.columns([0.2, 0.8], gap="small")
+    b64 = base64.b64encode(icon_svg.encode("utf-8")).decode("ascii")
     with ic:
-        accent = (
-            "border-left:3px solid #003a40;margin-left:-2px;padding-left:6px;border-radius:2px;"
-            if active
-            else ""
-        )
         st.markdown(
-            f'<div class="tc-nav-icon-wrap" style="{accent}">{icon_html}</div>',
+            f'<div class="tc-nav-icon-cell">'
+            f'<img src="data:image/svg+xml;base64,{b64}" width="20" height="20" alt="" />'
+            f"</div>",
             unsafe_allow_html=True,
         )
     with bc:
-        return st.button(label, key=button_key, use_container_width=True)
+        return st.button(
+            label,
+            key=button_key,
+            use_container_width=True,
+            type="primary" if active else "secondary",
+        )
 
 
 def _dept_nav_key(dept: str) -> str:
@@ -100,87 +103,33 @@ st.set_page_config(
 # Inyectar CSS personalizado
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Flujo de registro (Supabase) - NO depende de credentials.yaml
-if st.query_params.get("page") == "register":
-    st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
-    st.markdown('<div class="login-page">', unsafe_allow_html=True)
-    col_left, col_right = st.columns([1, 1])
-
-    logo_path = Path(__file__).parent / "assets" / "logo.png"
-
-    def _render_branding(logo_path: Path) -> None:
-        logo_b64 = ""
-        if logo_path.exists():
-            with open(logo_path, "rb") as f:
-                logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-        st.markdown(
-            '<div class="login-branding-box">'
-            + (
-                f'<img src="data:image/png;base64,{logo_b64}" alt="Total Capital" class="login-branding-logo"/>'
-                if logo_b64
-                else ""
-            )
-            + '<h3 class="login-branding-title">Bienvenido a Total Capital</h3>'
-            + '<p class="login-branding-subtitle">Intranet de automatización y herramientas internas.</p>'
-            + "</div>",
-            unsafe_allow_html=True,
-        )
-
-    with col_left:
-        st.subheader("Crear cuenta")
-        st.markdown(
-            '<p class="login-register-prompt">¿Ya tienes cuenta? <a href="?">Inicia sesión</a></p>',
-            unsafe_allow_html=True,
-        )
-        with st.form("form_register", clear_on_submit=True):
-            reg_username = st.text_input("Usuario", key="reg_username", placeholder="ej: mi_usuario")
-            reg_password = st.text_input(
-                "Contraseña", type="password", key="reg_password", placeholder="Elige una contraseña"
-            )
-            reg_name = st.text_input("Nombre (opcional)", key="reg_name", placeholder="Tu nombre")
-            reg_department = st.selectbox(
-                "Departamento",
-                options=["General", "Administración", "RRHH", "Ventas"],
-                key="reg_department",
-            )
-            submitted = st.form_submit_button("Registrarme")
-            if submitted:
-                if not reg_username or not reg_password:
-                    st.error("Usuario y contraseña son obligatorios.")
-                else:
-                    username = reg_username.strip().lower()
-                    email = username if "@" in username else f"{username}@totalcapital.com"
-                    user_metadata = {
-                        "username": username,
-                        "name": (reg_name or reg_username).strip() or username,
-                        "department": reg_department,
-                    }
-                    ok, msg = supabase_sign_up(email=email, password=reg_password, user_metadata=user_metadata)
-                    if ok:
-                        st.success(msg)
-                        st.info("Luego de confirmar el correo, inicia sesión.")
-                        st.query_params.clear()
-                        st.rerun()
-                    else:
-                        st.error(msg)
-
-    with col_right:
-        _render_branding(logo_path)
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.stop()
+# Sesión persistente (cookie) antes de cualquier otra pantalla
+restore_supabase_session_from_cookie()
 
 # Login / sesión con Supabase Auth
-def _normalize_email(user_or_email: str) -> str:
-    value = (user_or_email or "").strip().lower()
-    if not value:
+LOGIN_EMAIL_DOMAINS: tuple[str, ...] = (
+    "banverde.com",
+    "fidalia.mx",
+    "totalcapital.mx",
+    "totaltax.mx",
+    "totalbridge.com.mx",
+    "dynovaet.com",
+)
+
+
+def _login_email_from_local_and_domain(local_part: str, domain: str) -> str:
+    """Construye el email a partir de la parte local y el dominio elegido en el formulario."""
+    raw = (local_part or "").strip().lower()
+    if not raw:
         return ""
-    if "@" in value:
-        return value
-    # Compatibilidad con tu register actual: usuario -> usuario@totalcapital.com
-    return f"{value}@totalcapital.com"
+    local = raw.split("@", 1)[0].strip()
+    if not local:
+        return ""
+    dom = (domain or "").strip().lower()
+    if not dom:
+        return ""
+    return f"{local}@{dom}"
 
-
-restore_supabase_session_from_cookie()
 
 access_token = st.session_state.get("supabase_access_token")
 user_id = st.session_state.get("supabase_user_id")
@@ -214,11 +163,20 @@ if not access_token or not user_id:
     with col_left:
         st.subheader("Iniciar sesión")
         with st.form("form_login", clear_on_submit=True):
-            login_user = st.text_input(
-                "Usuario o email",
-                key="login_user",
-                placeholder="ej: mi_usuario o correo@dominio.com",
-            )
+            col_user, col_domain = st.columns([2, 3])
+            with col_user:
+                login_user = st.text_input(
+                    "Usuario",
+                    key="login_user",
+                    help="Solo la parte antes del @",
+                    placeholder="ej: juan.perez",
+                )
+            with col_domain:
+                login_domain = st.selectbox(
+                    "Dominio",
+                    options=LOGIN_EMAIL_DOMAINS,
+                    key="login_domain",
+                )
             login_password = st.text_input(
                 "Contraseña",
                 type="password",
@@ -227,9 +185,9 @@ if not access_token or not user_id:
             )
             submitted = st.form_submit_button("Ingresar")
             if submitted:
-                email = _normalize_email(login_user)
+                email = _login_email_from_local_and_domain(login_user, str(login_domain))
                 if not email or not login_password:
-                    st.error("Usuario/email y contraseña son obligatorios.")
+                    st.error("Usuario, dominio y contraseña son obligatorios.")
                 else:
                     ok, data_or_msg = supabase_sign_in(email=email, password=login_password)
                     if not ok:
@@ -250,11 +208,7 @@ if not access_token or not user_id:
                         else:
                             st.error("Sesión inválida: Supabase no devolvió usuario/token.")
 
-        st.markdown("---")
-        st.markdown(
-            '<p class="login-register-prompt">¿No tienes cuenta? <a href="?page=register">Regístrate</a></p>',
-            unsafe_allow_html=True,
-        )
+        st.caption("Si no tienes acceso, solicita una cuenta a un administrador.")
 
     with col_right:
         _render_branding(logo_path)
@@ -338,7 +292,7 @@ try:
         st.warning("No se encontraron departamentos para tu usuario.")
         st.stop()
 
-    # Navegación lateral (session_state se lee después de pintar los botones)
+    # Navegación lateral
     if "nav_main" not in st.session_state:
         st.session_state["nav_main"] = "tools"
     if "nav_department" not in st.session_state:
@@ -359,9 +313,13 @@ try:
 
     nm = st.session_state["nav_main"]
     nd = st.session_state["nav_department"]
+    # Los botones se dibujan antes de que este bloque actualice session_state; sin rerun,
+    # el tipo primary/activo queda un paso atrás respecto al contenido principal.
+    _nav_updated = False
 
     if _sidebar_nav_row(ICO_USER, "Perfil", "tc_nav_profile", active=(nm == "profile")):
         st.session_state["nav_main"] = "profile"
+        _nav_updated = True
 
     for dept in departamento_options:
         if _sidebar_nav_row(
@@ -372,6 +330,7 @@ try:
         ):
             st.session_state["nav_main"] = "tools"
             st.session_state["nav_department"] = dept
+            _nav_updated = True
 
     if role_name == "admin":
         if _sidebar_nav_row(
@@ -381,6 +340,10 @@ try:
             active=(nm == "users"),
         ):
             st.session_state["nav_main"] = "users"
+            _nav_updated = True
+
+    if _nav_updated:
+        st.rerun()
 
     st.sidebar.markdown("---")
     st.sidebar.caption("Intranet de Automatización v1.0")
