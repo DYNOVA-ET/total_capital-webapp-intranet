@@ -5,6 +5,11 @@ from pathlib import Path
 
 import streamlit as st
 
+from config.auth_cookie import (
+    clear_full_supabase_auth,
+    persist_supabase_refresh_cookie,
+    restore_supabase_session_from_cookie,
+)
 from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS
 from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_sign_up
 from modules.admin import admin_ui
@@ -175,6 +180,8 @@ def _normalize_email(user_or_email: str) -> str:
     return f"{value}@totalcapital.com"
 
 
+restore_supabase_session_from_cookie()
+
 access_token = st.session_state.get("supabase_access_token")
 user_id = st.session_state.get("supabase_user_id")
 
@@ -236,6 +243,9 @@ if not access_token or not user_id:
                             st.session_state["supabase_access_token"] = access_token
                             st.session_state["supabase_user_id"] = new_user_id
                             st.session_state["supabase_email"] = user_obj.get("email") or email
+                            rt = data.get("refresh_token")
+                            if rt:
+                                persist_supabase_refresh_cookie(str(rt))
                             st.rerun()
                         else:
                             st.error("Sesión inválida: Supabase no devolvió usuario/token.")
@@ -271,8 +281,7 @@ try:
             raise RuntimeError(str(users_rows))
     if not users_rows:
         st.error("Tu usuario no existe en `public.users`. Contacta con un admin.")
-        st.session_state.pop("supabase_access_token", None)
-        st.session_state.pop("supabase_user_id", None)
+        clear_full_supabase_auth()
         st.stop()
 
     user_row = users_rows[0]
@@ -281,8 +290,7 @@ try:
     user_active = bool(user_row.get("active", True))
     if not user_active:
         st.error("Tu cuenta está desactivada. Contacta a un admin.")
-        st.session_state.pop("supabase_access_token", None)
-        st.session_state.pop("supabase_user_id", None)
+        clear_full_supabase_auth()
         st.stop()
 
     ok, role_rows = supabase_rest_select(
@@ -346,7 +354,6 @@ try:
     # ——— Barra lateral (estilo limpio: marca, menú con iconos, logout abajo) ———
     if logo_path.exists():
         st.sidebar.image(str(logo_path), width=108)
-    st.sidebar.markdown('<p class="tc-sidebar-brand-title">Total Capital</p>', unsafe_allow_html=True)
     st.sidebar.caption(f"{full_name} · {role_name}")
     st.sidebar.markdown('<p class="tc-sidebar-section-label">Menú</p>', unsafe_allow_html=True)
 
@@ -379,10 +386,7 @@ try:
     st.sidebar.caption("Intranet de Automatización v1.0")
 
     if _sidebar_nav_row(ICO_LOGOUT, "Cerrar sesión", "tc_nav_logout", active=False):
-        st.session_state.pop("supabase_access_token", None)
-        st.session_state.pop("supabase_user_id", None)
-        st.session_state.pop("nav_main", None)
-        st.session_state.pop("nav_department", None)
+        clear_full_supabase_auth()
         st.rerun()
 
     nav_main = st.session_state["nav_main"]

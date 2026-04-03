@@ -167,6 +167,31 @@ def supabase_sign_in(email: str, password: str) -> tuple[bool, dict[str, Any] | 
         return False, str(e)
 
 
+def supabase_refresh_session(refresh_token: str) -> tuple[bool, dict[str, Any] | str]:
+    """Obtiene un nuevo access_token (y opcionalmente refresh_token) con el refresh_token de GoTrue."""
+    cfg = _get_supabase_secrets()
+    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/token"
+    rt = (refresh_token or "").strip()
+    if not rt:
+        return False, "refresh_token vacío."
+
+    try:
+        data = _supabase_request_json(
+            method="POST",
+            endpoint=endpoint,
+            anon_key=cfg["anon_key"],
+            query_params={"grant_type": "refresh_token"},
+            payload={"refresh_token": rt},
+        )
+        if not isinstance(data, dict):
+            return False, "Respuesta inesperada de Supabase."
+        if "access_token" not in data:
+            return False, str(data.get("error_description") or data.get("msg") or data)
+        return True, data
+    except Exception as e:
+        return False, str(e)
+
+
 def supabase_rest_select(
     *,
     table_or_view: str,
@@ -389,6 +414,30 @@ def supabase_admin_update_user_password(
             payload=payload,
         )
         return True, data
+    except Exception as e:
+        return False, str(e)
+
+
+def supabase_admin_delete_user(*, user_id: str) -> tuple[bool, Any | str]:
+    """Elimina un usuario en Supabase Auth (GoTrue) con service_role_key."""
+    cfg = _get_supabase_secrets()
+    if not cfg.get("service_role_key"):
+        return False, "Falta [supabase].service_role_key en `.streamlit/secrets.toml`."
+    uid = str(user_id).strip()
+    if not uid:
+        return False, "user_id requerido."
+
+    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/admin/users/{uid}"
+    try:
+        _supabase_request_json(
+            method="DELETE",
+            endpoint=endpoint,
+            anon_key=cfg["service_role_key"],
+            access_token=cfg["service_role_key"],
+            query_params=None,
+            payload=None,
+        )
+        return True, None
     except Exception as e:
         return False, str(e)
 
