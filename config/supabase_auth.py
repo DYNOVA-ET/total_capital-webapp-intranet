@@ -418,6 +418,29 @@ def supabase_admin_update_user_password(
         return False, str(e)
 
 
+def supabase_update_own_password(*, access_token: str, new_password: str) -> tuple[bool, str]:
+    """Actualiza la contraseña del usuario autenticado (self-service, PUT /auth/v1/user)."""
+    cfg = _get_supabase_secrets()
+    if not access_token:
+        return False, "No hay sesión activa."
+    if not new_password:
+        return False, "La contraseña no puede estar vacía."
+
+    endpoint = f"{cfg['url'].rstrip('/')}/auth/v1/user"
+    try:
+        _supabase_request_json(
+            method="PUT",
+            endpoint=endpoint,
+            anon_key=cfg["anon_key"],
+            access_token=access_token,
+            query_params=None,
+            payload={"password": new_password},
+        )
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
 def supabase_admin_delete_user(*, user_id: str) -> tuple[bool, Any | str]:
     """Elimina un usuario en Supabase Auth (GoTrue) con service_role_key."""
     cfg = _get_supabase_secrets()

@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 from modules.admin import admin_logic
 from config.email_sender import is_email_configured, send_email_with_attachment
+from config.theme import ADMIN_MODULE_CSS
 
 # Bancos disponibles
 BANCOS = {
@@ -26,8 +27,17 @@ def render():
     if "admin_results" not in st.session_state:
         st.session_state.admin_results = {}
 
-    st.title("Administración")
-    st.markdown("Procesamiento de estados de cuenta bancarios (CSV).")
+    st.markdown(ADMIN_MODULE_CSS, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="tc-admin-header">
+        <div class="tc-admin-header-icon">🏦</div>
+        <div class="tc-admin-header-text">
+            <h2>Administración</h2>
+            <p>Procesamiento de estados de cuenta bancarios (CSV → Excel)</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     uploaded_files = st.file_uploader(
         "Sube uno o varios archivos CSV",
@@ -56,8 +66,8 @@ def render():
             col1, col2 = st.columns(2)
             with col1:
                 bank_options = list(BANCOS.keys())
-            bank_index = bank_options.index(settings["bank"]) if settings["bank"] in bank_options else 0
-            new_bank = st.selectbox(
+                bank_index = bank_options.index(settings["bank"]) if settings["bank"] in bank_options else 0
+                new_bank = st.selectbox(
                     "Banco",
                     options=bank_options,
                     index=bank_index,
@@ -105,8 +115,14 @@ def render():
 
     # Descarga combinada si hay resultados
     if st.session_state.admin_results:
-        st.markdown("---")
-        st.subheader("Descargar resultados")
+        n = len(st.session_state.admin_results)
+        st.markdown(f"""
+        <div class="tc-download-section">
+            <span class="tc-result-badge">✓ {n} archivo{"s" if n != 1 else ""} procesado{"s" if n != 1 else ""}</span>
+            <h3>Descargar resultados</h3>
+        </div>
+        """, unsafe_allow_html=True)
+
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             for filename, result_df in st.session_state.admin_results.items():
@@ -114,7 +130,7 @@ def render():
                 result_df.to_excel(writer, index=False, sheet_name=sheet_name)
         output.seek(0)
         st.download_button(
-            label="Descargar todo (Excel con varias hojas)",
+            label="⬇ Descargar todo (Excel con varias hojas)",
             data=output,
             file_name="estados_cuenta_procesados.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

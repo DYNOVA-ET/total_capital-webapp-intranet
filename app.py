@@ -10,8 +10,8 @@ from config.auth_cookie import (
     persist_supabase_refresh_cookie,
     restore_supabase_session_from_cookie,
 )
-from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS
-from config.supabase_auth import supabase_rest_select, supabase_sign_in
+from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS, PROFILE_PAGE_CSS
+from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_update_own_password
 from modules.admin import admin_ui
 from modules.admin.users_ui import render as render_users_ui
 
@@ -86,11 +86,87 @@ def _dept_nav_key(dept: str) -> str:
     return f"tc_nav_d_{safe or 'x'}"
 
 
-def _render_profile_page(*, full_name: str, role_name: str, email: str) -> None:
-    st.header("Perfil")
-    st.markdown(f"**Nombre:** {full_name}")
-    st.markdown(f"**Rol:** {role_name}")
-    st.markdown(f"**Correo:** {email}")
+def _render_profile_page(
+    *,
+    full_name: str,
+    role_name: str,
+    email: str,
+    departments: list[str],
+    access_token: str,
+) -> None:
+    st.markdown(PROFILE_PAGE_CSS, unsafe_allow_html=True)
+
+    # Calcular iniciales para el avatar
+    parts = (full_name or "").strip().split()
+    if len(parts) >= 2:
+        initials = (parts[0][0] + parts[-1][0]).upper()
+    elif parts:
+        initials = parts[0][:2].upper()
+    else:
+        initials = "?"
+
+    role_label = "Administrador" if role_name == "admin" else "Usuario"
+
+    # ── Hero card ──
+    st.markdown(f"""
+    <div class="tc-profile-hero">
+        <div class="tc-profile-avatar">{initials}</div>
+        <div>
+            <p class="tc-profile-name">{full_name}</p>
+            <p class="tc-profile-email">{email}</p>
+            <span class="tc-role-badge">{role_label}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Departamentos ──
+    if departments:
+        chips_html = "".join(
+            f'<span class="tc-dept-chip">📁 {d}</span>' for d in departments
+        )
+        st.markdown(f"""
+        <div class="tc-profile-card">
+            <p class="tc-profile-section-label">Departamentos asignados</p>
+            <div class="tc-dept-chips">{chips_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Cambiar contraseña ──
+    st.markdown("""
+    <div class="tc-profile-card">
+        <div class="tc-password-section-header">
+            <span>🔒 Cambiar contraseña</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("form_change_password", clear_on_submit=True):
+        new_pw = st.text_input(
+            "Nueva contraseña",
+            type="password",
+            placeholder="Mínimo 8 caracteres",
+        )
+        confirm_pw = st.text_input(
+            "Confirmar contraseña",
+            type="password",
+            placeholder="Repite la nueva contraseña",
+        )
+        submitted = st.form_submit_button("Actualizar contraseña", type="primary")
+        if submitted:
+            if not new_pw or not confirm_pw:
+                st.error("Completa ambos campos.")
+            elif new_pw != confirm_pw:
+                st.error("Las contraseñas no coinciden.")
+            elif len(new_pw) < 8:
+                st.error("La contraseña debe tener al menos 8 caracteres.")
+            else:
+                ok, result = supabase_update_own_password(
+                    access_token=access_token, new_password=new_pw
+                )
+                if ok:
+                    st.success("✓ Contraseña actualizada correctamente.")
+                else:
+                    st.error(f"No se pudo actualizar: {result}")
 
 
 st.set_page_config(
@@ -357,7 +433,13 @@ try:
     user_email = st.session_state.get("supabase_email") or ""
 
     if nav_main == "profile":
-        _render_profile_page(full_name=full_name, role_name=role_name, email=user_email)
+        _render_profile_page(
+            full_name=full_name,
+            role_name=role_name,
+            email=user_email,
+            departments=departamento_options,
+            access_token=access_token,
+        )
     elif nav_main == "users":
         render_users_ui(access_token=access_token, current_user_id=user_id)
     else:
