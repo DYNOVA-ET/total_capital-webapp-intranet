@@ -13,24 +13,41 @@ from typing import Any
 
 
 def _get_supabase_secrets() -> dict[str, str]:
+    """Lee credenciales de Supabase desde st.secrets o variables de entorno."""
+    import os
     import streamlit as st
 
+    # 1. Intentar desde st.secrets (local con secrets.toml)
     try:
         secrets = st.secrets["supabase"]  # type: ignore[index]
+        url = secrets.get("url")
+        anon_key = secrets.get("anon_key")
+        service_role_key = secrets.get("service_role_key", "")
     except Exception:
-        secrets = {}
-    url = secrets.get("url")
-    anon_key = secrets.get("anon_key")
-    service_role_key = secrets.get("service_role_key")
+        url = anon_key = service_role_key = None
+
+    # 2. Fallback a variables de entorno (Render, Railway, etc.)
+    if not url:
+        url = os.environ.get("SUPABASE_URL") or os.environ.get("url")
+    if not anon_key:
+        anon_key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("anon_key")
+    if not service_role_key:
+        service_role_key = (
+            os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            or os.environ.get("service_role_key")
+            or ""
+        )
+
     if not url or not anon_key:
         raise ValueError(
-            "Faltan credenciales de Supabase en `.streamlit/secrets.toml`: "
-            "asegúrate de definir [supabase].url y [supabase].anon_key."
+            "Faltan credenciales de Supabase. Define [supabase].url y "
+            "[supabase].anon_key en secrets.toml, o las variables de entorno "
+            "SUPABASE_URL y SUPABASE_ANON_KEY."
         )
     return {
         "url": str(url),
         "anon_key": str(anon_key),
-        "service_role_key": str(service_role_key) if service_role_key else "",
+        "service_role_key": str(service_role_key),
     }
 
 
@@ -461,6 +478,46 @@ def supabase_admin_delete_user(*, user_id: str) -> tuple[bool, Any | str]:
             payload=None,
         )
         return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def supabase_log_audit(
+    *,
+    access_token: str,
+    user_id: str,
+    action: str,
+    resource_type: str | None = None,
+    resource_id: str | None = None,
+    old_values: dict[str, Any] | None = None,
+    new_values: dict[str, Any] | None = None,
+    ip_address: str | None = None,
+) -> tuple[bool, str]:
+    """
+    Log an audit event to the audit_logs table.
+    """
+    cfg = _get_supabase_secrets()
+    endpoint = f"{cfg['url'].rstrip('/')}/rest/v1/audit_logs"
+
+    payload = {
+        "user_id": user_id,
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "old_values": old_values,
+        "new_values": new_values,
+        "ip_address": ip_address,
+    }
+
+    try:
+        _supabase_request_json(
+            method="POST",
+            endpoint=endpoint,
+            anon_key=cfg["anon_key"],
+            access_token=access_token,
+            payload=payload,
+        )
+        return True, ""
     except Exception as e:
         return False, str(e)
 

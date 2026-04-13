@@ -8,10 +8,16 @@ from modules.admin import admin_logic
 from config.email_sender import is_email_configured, send_email_with_attachment
 from config.theme import ADMIN_MODULE_CSS
 
-# Bancos disponibles
-BANCOS = {
-    "Banco VE POR MAS": admin_logic.BANCO_VE_POR_MAS,
-}
+def validate_csv_upload(file) -> tuple[bool, str]:
+    """Validate file before processing."""
+    MAX_SIZE = 10 * 1024 * 1024  # 10MB
+    ALLOWED_TYPES = {'csv', 'text/csv', 'application/csv'}
+    
+    if file.size > MAX_SIZE:
+        return False, "Archivo > 10MB"
+    if file.name.split('.')[-1].lower() != 'csv':
+        return False, "Solo archivos CSV permitidos"
+    return True, ""
 
 
 def _sanitize_sheet_name(name: str, max_len: int = 31) -> str:
@@ -58,6 +64,18 @@ def render():
                 "bank": list(BANCOS.keys())[0],
                 "header_row": 10,
             }
+
+    # Validar archivos
+    invalid_files = []
+    for f in uploaded_files:
+        valid, msg = validate_csv_upload(f)
+        if not valid:
+            invalid_files.append(f"{f.name}: {msg}")
+    
+    if invalid_files:
+        for msg in invalid_files:
+            st.error(msg)
+        st.stop()
 
     # Formulario por cada archivo
     for uploaded_file in uploaded_files:
