@@ -17,11 +17,13 @@ from config.supabase_auth import (
     supabase_admin_create_user,
     supabase_admin_delete_user,
     supabase_admin_update_user_password,
+    supabase_log_audit,
     supabase_rest_delete,
     supabase_rest_patch,
     supabase_rest_post,
     supabase_rest_select,
 )
+from config.password_validator import validate_password_strength, get_password_checklist
 
 USERS_PAGE_CSS = """
 <style>
@@ -184,6 +186,9 @@ _ICO_LINE = (
 )
 _ICO_EDIT_LINE = _ICO_LINE.format(
     d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125",
+)
+_ICO_KEY_LINE = _ICO_LINE.format(
+    d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z",
 )
 _ICO_TRASH_LINE = _ICO_LINE.format(
     d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0",
@@ -397,6 +402,21 @@ def render(*, access_token: str, current_user_id: str) -> None:
                     st.error(f"No se pudo crear el usuario: {res}")
                     return
 
+                # Log audit
+                supabase_log_audit(
+                    access_token=access_token,
+                    user_id=current_user_id,  # Admin who created
+                    action="user_created",
+                    resource_type="user",
+                    resource_id=res.get("user_id") if isinstance(res, dict) else None,
+                    new_values={
+                        "email": email,
+                        "full_name": full_name,
+                        "role": role_name,
+                        "departments": dept_names,
+                    },
+                )
+
                 try:
                     st.toast("Usuario creado con éxito.")
                 except Exception:
@@ -430,14 +450,6 @@ def render(*, access_token: str, current_user_id: str) -> None:
 
         selected_full_name = st.text_input("Nombre", value=str(su.get("full_name") or ""), key=f"{ks}fn")
         st.text_input("Email", value=str(su.get("email") or ""), disabled=True, key=f"{ks}em")
-
-        st.markdown("##### Cambiar contraseña")
-        new_password = st.text_input(
-            "Nueva contraseña",
-            type="password",
-            placeholder="Dejar vacío si no cambia",
-            key=f"{ks}pw",
-        )
 
         selected_active = st.checkbox("Activo", value=bool(su.get("active", True)), key=f"{ks}act")
 
@@ -515,29 +527,92 @@ def render(*, access_token: str, current_user_id: str) -> None:
                 st.toast("Cambios guardados con éxito.")
             except Exception:
                 st.success("Cambios guardados con éxito.")
+            
+            # Log audit
+            supabase_log_audit(
+                access_token=access_token,
+                user_id=current_user_id,
+                action="user_updated",
+                resource_type="user",
+                resource_id=selected_user_id,
+                old_values={
+                    "full_name": su.get("full_name"),
+                    "active": su.get("active"),
+                    "role_id": su.get("role_id"),
+                },
+                new_values={
+                    "full_name": selected_full_name,
+                    "active": selected_active,
+                    "role_id": sel_role,
+                    "departments": sel_depts,
+                },
+            )
+            
             st.rerun()
 
-        if st.button("Actualizar contraseña", use_container_width=True, key=f"{ks}pwbtn"):
-            if not new_password:
+        if st.button("Cerrar", use_container_width=True, key=f"{ks}close"):
+            st.session_state.pop("admin_open_edit_uid", None)
+            st.rerun()
+
+    @st.dialog("Cambiar contraseña")
+    def _change_password_dialog(selected_user_id: str) -> None:
+        su = next((u for u in users if str(u.get("id")) == selected_user_id), None)
+        if not su:
+            st.error("Usuario no encontrado.")
+            return
+        st.caption(f"Cambiar contraseña para: {su.get('email') or 'Sin correo'}")
+
+        pw_key = f"pw_{selected_user_id}"
+        new_password = st.text_input(
+            "Nueva contraseña",
+            type="password",
+            placeholder="Mínimo 12 caracteres, mayúsculas, números y símbolos",
+            key=pw_key,
+        )
+        
+        # Mostrar checklist si hay algo escrito
+        if new_password:
+            checklist = get_password_checklist(new_password)
+            st.markdown("**Requisitos de la contraseña:**")
+            for req, met in checklist.items():
+                icon = "✅" if met else "❌"
+                st.markdown(f"{icon} {req}")
+        
+        if st.button("Actualizar contraseña", type="primary", use_container_width=True, key=f"pw_save_{selected_user_id}"):
+            new_pw_val = st.session_state.get(pw_key, "")
+            if not new_pw_val:
                 st.error("Escribe una nueva contraseña.")
+                return
+            if not validate_password_strength(new_pw_val)[0]:
+                st.error(validate_password_strength(new_pw_val)[1])
                 return
             ok_pw, res = supabase_admin_update_user_password(
                 user_id=selected_user_id,
-                new_password=new_password,
+                new_password=new_pw_val,
                 email_confirm=None,
             )
             if not ok_pw:
                 st.error(f"No se pudo cambiar la contraseña: {res}")
                 return
-            st.session_state.pop("admin_open_edit_uid", None)
+            st.session_state.pop("admin_open_change_pw_uid", None)
             try:
                 st.toast("Contraseña actualizada.")
             except Exception:
                 st.success("Contraseña actualizada.")
+            
+            # Log audit
+            supabase_log_audit(
+                access_token=access_token,
+                user_id=current_user_id,
+                action="user_password_changed",
+                resource_type="user",
+                resource_id=selected_user_id,
+            )
+            
             st.rerun()
 
-        if st.button("Cerrar", use_container_width=True, key=f"{ks}close"):
-            st.session_state.pop("admin_open_edit_uid", None)
+        if st.button("Cerrar", use_container_width=True, key=f"pw_close_{selected_user_id}"):
+            st.session_state.pop("admin_open_change_pw_uid", None)
             st.rerun()
 
     @st.dialog("Eliminar usuario")
@@ -568,10 +643,26 @@ def render(*, access_token: str, current_user_id: str) -> None:
                     st.toast("Usuario eliminado.")
                 except Exception:
                     st.success("Usuario eliminado.")
+                
+                # Log audit
+                supabase_log_audit(
+                    access_token=access_token,
+                    user_id=current_user_id,
+                    action="user_deleted",
+                    resource_type="user",
+                    resource_id=selected_user_id,
+                    old_values={
+                        "email": su.get("email"),
+                        "full_name": su.get("full_name"),
+                    },
+                )
+                
                 st.rerun()
 
     if st.session_state.get("admin_open_edit_uid"):
         _edit_user_dialog(st.session_state["admin_open_edit_uid"])
+    elif st.session_state.get("admin_open_change_pw_uid"):
+        _change_password_dialog(st.session_state["admin_open_change_pw_uid"])
     elif st.session_state.get("admin_open_delete_uid"):
         _delete_user_dialog(st.session_state["admin_open_delete_uid"])
 
@@ -748,7 +839,7 @@ def render(*, access_token: str, current_user_id: str) -> None:
                         unsafe_allow_html=True,
                     )
                 with row[5]:
-                    b_ed, b_dl = st.columns(2, gap="small")
+                    b_ed, b_pw, b_dl = st.columns(3, gap="small")
                     with b_ed:
                         if st.button(
                             _svg_icon_button_label(_ICO_EDIT_LINE),
@@ -758,6 +849,19 @@ def render(*, access_token: str, current_user_id: str) -> None:
                             use_container_width=True,
                         ):
                             st.session_state["admin_open_edit_uid"] = uid
+                            st.session_state.pop("admin_open_delete_uid", None)
+                            st.session_state.pop("admin_open_change_pw_uid", None)
+                            st.rerun()
+                    with b_pw:
+                        if st.button(
+                            _svg_icon_button_label(_ICO_KEY_LINE),
+                            key=f"tbl_pw_{uid}_{page_idx}_{row_i}",
+                            help="Cambiar contraseña",
+                            type="tertiary",
+                            use_container_width=True,
+                        ):
+                            st.session_state["admin_open_change_pw_uid"] = uid
+                            st.session_state.pop("admin_open_edit_uid", None)
                             st.session_state.pop("admin_open_delete_uid", None)
                             st.rerun()
                     with b_dl:
@@ -770,6 +874,7 @@ def render(*, access_token: str, current_user_id: str) -> None:
                         ):
                             st.session_state["admin_open_delete_uid"] = uid
                             st.session_state.pop("admin_open_edit_uid", None)
+                            st.session_state.pop("admin_open_change_pw_uid", None)
                             st.rerun()
 
                 if row_i < len(chunk) - 1:

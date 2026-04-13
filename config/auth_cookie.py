@@ -59,6 +59,7 @@ def persist_supabase_refresh_cookie(refresh_token: str) -> None:
         expires_at=expires,
         path="/",
         same_site="lax",
+        secure=True,  # Solo HTTPS
     )
 
 

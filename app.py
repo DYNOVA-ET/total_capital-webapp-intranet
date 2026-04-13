@@ -2,6 +2,7 @@
 
 import base64
 from pathlib import Path
+import time
 
 import streamlit as st
 
@@ -11,7 +12,8 @@ from config.auth_cookie import (
     restore_supabase_session_from_cookie,
 )
 from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS, PROFILE_PAGE_CSS
-from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_update_own_password
+from config.supabase_auth import supabase_rest_select, supabase_rest_patch, supabase_sign_in, supabase_update_own_password, supabase_log_audit
+from config.password_validator import validate_password_strength, get_password_checklist
 from modules.admin import admin_ui
 from modules.admin.users_ui import render as render_users_ui
 
@@ -86,6 +88,14 @@ def _dept_nav_key(dept: str) -> str:
     return f"tc_nav_d_{safe or 'x'}"
 
 
+_EMOJI_OPTIONS: list[str] = [
+    "😊", "😎", "🤓", "🦁", "🐯", "🦊", "🐺", "🐻",
+    "🦅", "🦋", "🌟", "⚡", "🔥", "🌙", "🌊", "🍀",
+    "🚀", "💡", "🎯", "💼", "📊", "🔑", "🏆", "🎨",
+    "🌿", "🦄", "🐉", "✨",
+]
+
+
 def _render_profile_page(
     *,
     full_name: str,
@@ -93,31 +103,75 @@ def _render_profile_page(
     email: str,
     departments: list[str],
     access_token: str,
+    user_id: str,
+    user_emoji: str | None = None,
 ) -> None:
     st.markdown(PROFILE_PAGE_CSS, unsafe_allow_html=True)
 
-    # Calcular iniciales para el avatar
-    parts = (full_name or "").strip().split()
-    if len(parts) >= 2:
-        initials = (parts[0][0] + parts[-1][0]).upper()
-    elif parts:
-        initials = parts[0][:2].upper()
+    # Avatar: emoji si existe, sino iniciales
+    if user_emoji:
+        avatar_content = user_emoji
     else:
-        initials = "?"
+        parts = (full_name or "").strip().split()
+        if len(parts) >= 2:
+            avatar_content = (parts[0][0] + parts[-1][0]).upper()
+        elif parts:
+            avatar_content = parts[0][:2].upper()
+        else:
+            avatar_content = "?"
 
     role_label = "Administrador" if role_name == "admin" else "Usuario"
 
-    # ── Hero card ──
-    st.markdown(f"""
-    <div class="tc-profile-hero">
-        <div class="tc-profile-avatar">{initials}</div>
-        <div>
-            <p class="tc-profile-name">{full_name}</p>
-            <p class="tc-profile-email">{email}</p>
-            <span class="tc-role-badge">{role_label}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    @st.dialog("Elige tu avatar")
+    def _pick_avatar() -> None:
+        st.markdown(
+            '<p style="color:#6b7280;font-family:Poppins,sans-serif;font-size:0.85rem;margin:0 0 0.75rem">Haz clic en un emoji para usarlo como avatar.</p>',
+            unsafe_allow_html=True,
+        )
+        ecols = st.columns(7)
+        for idx, emoji_opt in enumerate(_EMOJI_OPTIONS):
+            with ecols[idx % 7]:
+                if st.button(
+                    emoji_opt,
+                    key=f"dlg_ep_{idx}",
+                    type="primary" if emoji_opt == user_emoji else "secondary",
+                    use_container_width=True,
+                ):
+                    ok, _ = supabase_rest_patch(
+                        table_or_view="users",
+                        access_token=access_token,
+                        query_params={"id": f"eq.{user_id}"},
+                        payload={"emoji": emoji_opt},
+                    )
+                    if ok:
+                        st.rerun()
+                    else:
+                        st.error("No se pudo guardar el avatar.")
+        if user_emoji:
+            st.markdown("---")
+            if st.button("Usar iniciales", key="dlg_ep_remove"):
+                ok, _ = supabase_rest_patch(
+                    table_or_view="users",
+                    access_token=access_token,
+                    query_params={"id": f"eq.{user_id}"},
+                    payload={"emoji": None},
+                )
+                if ok:
+                    st.rerun()
+
+    # ── Hero card: el marcador va DENTRO de la columna info para que esté
+    # en el stHorizontalBlock → CSS :has() aplica gradiente al bloque de columnas
+    av_col, info_col = st.columns([1, 4], vertical_alignment="center")
+    with av_col:
+        if st.button(avatar_content, key="tc_avatar_btn", help="Cambiar avatar"):
+            _pick_avatar()
+    with info_col:
+        st.markdown(f"""
+        <span class="tc-hero-marker"></span>
+        <p class="tc-profile-name">{full_name}</p>
+        <p class="tc-profile-email">{email}</p>
+        <span class="tc-role-badge">{role_label}</span>
+        """, unsafe_allow_html=True)
 
     # ── Departamentos ──
     if departments:
@@ -140,31 +194,60 @@ def _render_profile_page(
     </div>
     """, unsafe_allow_html=True)
 
-    with st.form("form_change_password", clear_on_submit=True):
+    # Usar container en lugar de form para checklist en tiempo real
+    with st.container():
+        new_pw_key = "profile_new_pw"
+        confirm_pw_key = "profile_confirm_pw"
+        
         new_pw = st.text_input(
             "Nueva contraseña",
             type="password",
-            placeholder="Mínimo 8 caracteres",
+            placeholder="Mínimo 12 caracteres, mayúsculas, números y símbolos",
+            key=new_pw_key,
         )
+        
+        # Mostrar checklist si hay algo escrito
+        if new_pw:
+            checklist = get_password_checklist(new_pw)
+            st.markdown("**Requisitos de la contraseña:**")
+            for req, met in checklist.items():
+                icon = "✅" if met else "❌"
+                st.markdown(f"{icon} {req}")
+        
         confirm_pw = st.text_input(
             "Confirmar contraseña",
             type="password",
             placeholder="Repite la nueva contraseña",
+            key=confirm_pw_key,
         )
-        submitted = st.form_submit_button("Actualizar contraseña", type="primary")
-        if submitted:
-            if not new_pw or not confirm_pw:
+        
+        if st.button("Actualizar contraseña", type="primary", key="profile_update_pw_btn"):
+            new_pw_val = st.session_state.get(new_pw_key, "")
+            confirm_pw_val = st.session_state.get(confirm_pw_key, "")
+            if not new_pw_val or not confirm_pw_val:
                 st.error("Completa ambos campos.")
-            elif new_pw != confirm_pw:
+            elif new_pw_val != confirm_pw_val:
                 st.error("Las contraseñas no coinciden.")
-            elif len(new_pw) < 8:
-                st.error("La contraseña debe tener al menos 8 caracteres.")
+            elif not validate_password_strength(new_pw_val)[0]:
+                st.error(validate_password_strength(new_pw_val)[1])
             else:
                 ok, result = supabase_update_own_password(
-                    access_token=access_token, new_password=new_pw
+                    access_token=access_token, new_password=new_pw_val
                 )
                 if ok:
                     st.success("✓ Contraseña actualizada correctamente.")
+                    # Log audit
+                    supabase_log_audit(
+                        access_token=access_token,
+                        user_id=user_id,
+                        action="password_changed",
+                        resource_type="user",
+                        resource_id=user_id,
+                    )
+                    # Limpiar campos
+                    st.session_state[new_pw_key] = ""
+                    st.session_state[confirm_pw_key] = ""
+                    st.rerun()
                 else:
                     st.error(f"No se pudo actualizar: {result}")
 
@@ -238,6 +321,17 @@ if not access_token or not user_id:
     col_left, col_right = st.columns([1, 1])
     with col_left:
         st.subheader("Iniciar sesión")
+        
+        # Rate limiting check
+        failed_attempts = st.session_state.get("failed_attempts", 0)
+        last_attempt_time = st.session_state.get("last_attempt_time", 0)
+        current_time = time.time()
+        lockout_duration = 15 * 60  # 15 minutes
+        if failed_attempts >= 5 and (current_time - last_attempt_time) < lockout_duration:
+            remaining_time = int(lockout_duration - (current_time - last_attempt_time))
+            st.error(f"Demasiados intentos fallidos. Intenta de nuevo en {remaining_time // 60} minutos.")
+            st.stop()
+        
         with st.form("form_login", clear_on_submit=True):
             col_user, col_domain = st.columns([2, 3])
             with col_user:
@@ -268,6 +362,13 @@ if not access_token or not user_id:
                     ok, data_or_msg = supabase_sign_in(email=email, password=login_password)
                     if not ok:
                         st.error(str(data_or_msg))
+                        st.session_state["failed_attempts"] = failed_attempts + 1
+                        st.session_state["last_attempt_time"] = current_time
+                        remaining = 5 - st.session_state["failed_attempts"]
+                        if remaining > 0:
+                            st.warning(f"Intentos restantes: {remaining}. Máximo 5 intentos antes del bloqueo temporal.")
+                        else:
+                            st.error("Cuenta bloqueada temporalmente por demasiados intentos fallidos.")
                     else:
                         data = data_or_msg
                         access_token = data.get("access_token")
@@ -280,6 +381,8 @@ if not access_token or not user_id:
                             rt = data.get("refresh_token")
                             if rt:
                                 persist_supabase_refresh_cookie(str(rt))
+                            # Reset failed attempts on successful login
+                            st.session_state["failed_attempts"] = 0
                             st.rerun()
                         else:
                             st.error("Sesión inválida: Supabase no devolvió usuario/token.")
@@ -297,7 +400,7 @@ try:
     ok, users_rows = supabase_rest_select(
         table_or_view="users",
         access_token=access_token,
-        query_params={"select": "id,full_name,role_id,active", "id": f"eq.{user_id}", "limit": "1"},
+        query_params={"select": "id,full_name,role_id,active,emoji", "id": f"eq.{user_id}", "limit": "1"},
     )
     if not ok:
         # Fallback si aún no existe la columna `active` en tu tabla.
@@ -305,7 +408,7 @@ try:
             ok, users_rows = supabase_rest_select(
                 table_or_view="users",
                 access_token=access_token,
-                query_params={"select": "id,full_name,role_id", "id": f"eq.{user_id}", "limit": "1"},
+                query_params={"select": "id,full_name,role_id,emoji", "id": f"eq.{user_id}", "limit": "1"},
             )
         if not ok:
             raise RuntimeError(str(users_rows))
@@ -318,6 +421,7 @@ try:
     full_name = user_row.get("full_name") or st.session_state.get("supabase_email") or user_id
     role_id = user_row.get("role_id")
     user_active = bool(user_row.get("active", True))
+    user_emoji = user_row.get("emoji")
     if not user_active:
         st.error("Tu cuenta está desactivada. Contacta a un admin.")
         clear_full_supabase_auth()
@@ -439,6 +543,8 @@ try:
             email=user_email,
             departments=departamento_options,
             access_token=access_token,
+            user_id=user_id,
+            user_emoji=user_emoji,
         )
     elif nav_main == "users":
         render_users_ui(access_token=access_token, current_user_id=user_id)

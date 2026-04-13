@@ -409,34 +409,39 @@ PROFILE_PAGE_CSS = """
         to   { opacity: 1; transform: scale(1); }
     }
 
-    /* ── Hero card ── */
-    .tc-profile-hero {
-        display: flex;
-        align-items: center;
-        gap: 1.5rem;
-        padding: 1.75rem 2rem;
-        background: linear-gradient(135deg, #003a40 0%, #004d55 100%);
-        border-radius: 16px;
-        margin-bottom: 1.25rem;
+    /* ── Hero card: gradiente en el stHorizontalBlock (columnas del hero) ── */
+    .tc-hero-marker { display: none; }
+    [data-testid="stHorizontalBlock"]:has(.tc-hero-marker) {
+        background: linear-gradient(135deg, #003a40 0%, #004d55 100%) !important;
+        border-radius: 16px !important;
+        padding: 1.25rem 2rem !important;
+        margin-bottom: 1.25rem !important;
+        align-items: center !important;
         animation: profileFadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
 
-    /* ── Avatar con iniciales ── */
-    .tc-profile-avatar {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: rgba(126, 217, 87, 0.15);
-        border: 2px solid rgba(126, 217, 87, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: 'Montserrat', sans-serif;
-        font-size: 1.6rem;
-        font-weight: 700;
-        color: #7ed957;
-        flex-shrink: 0;
-        animation: avatarPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+    /* ── Avatar: st.button nativo estilizado como círculo ── */
+    [data-testid="stHorizontalBlock"]:has(.tc-hero-marker) [data-testid="stBaseButton-secondary"] {
+        border-radius: 50% !important;
+        width: 72px !important;
+        height: 72px !important;
+        min-height: 72px !important;
+        background: rgba(126, 217, 87, 0.15) !important;
+        border: 2px solid rgba(126, 217, 87, 0.5) !important;
+        color: #7ed957 !important;
+        font-size: 2.2rem !important;
+        font-weight: 700 !important;
+        font-family: 'Montserrat', sans-serif !important;
+        padding: 0 !important;
+        animation: avatarPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both !important;
+        transition: border-color 0.2s ease, background 0.2s ease,
+                    transform 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    [data-testid="stHorizontalBlock"]:has(.tc-hero-marker) [data-testid="stBaseButton-secondary"]:hover {
+        border-color: #7ed957 !important;
+        background: rgba(126, 217, 87, 0.28) !important;
+        transform: scale(1.06) !important;
+        box-shadow: 0 0 0 4px rgba(126, 217, 87, 0.15) !important;
     }
 
     .tc-profile-name {
@@ -514,6 +519,31 @@ PROFILE_PAGE_CSS = """
     .tc-dept-chip:hover {
         background: #dcfce7;
         border-color: #4ade80;
+    }
+
+    /* ── Emoji picker dialog: botones de emoji cuadrados ── */
+    [data-testid="stDialog"] [data-testid="stBaseButton-secondary"] {
+        font-size: 1.5rem !important;
+        min-height: 52px !important;
+        padding: 0 !important;
+        border-radius: 10px !important;
+        border-color: #e5e7eb !important;
+        transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease !important;
+    }
+    [data-testid="stDialog"] [data-testid="stBaseButton-secondary"]:hover {
+        border-color: #7ed957 !important;
+        background: #f0fdf4 !important;
+        transform: scale(1.12) !important;
+    }
+    [data-testid="stDialog"] [data-testid="stBaseButton-primary"] {
+        font-size: 1.5rem !important;
+        min-height: 52px !important;
+        padding: 0 !important;
+        border-radius: 10px !important;
+        background: rgba(126, 217, 87, 0.15) !important;
+        border: 2px solid #7ed957 !important;
+        color: #003a40 !important;
+        transform: scale(1.06) !important;
     }
 
     /* ── Sección cambio de contraseña ── */
