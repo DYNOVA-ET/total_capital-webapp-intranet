@@ -5,9 +5,169 @@ from pathlib import Path
 
 import streamlit as st
 
-from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS
-from config.auth import load_credentials, get_user_department, register_user
+from config.auth_cookie import (
+    clear_full_supabase_auth,
+    persist_supabase_refresh_cookie,
+    restore_supabase_session_from_cookie,
+)
+from config.theme import CUSTOM_CSS, LOGIN_PAGE_CSS, PROFILE_PAGE_CSS
+from config.supabase_auth import supabase_rest_select, supabase_sign_in, supabase_update_own_password
 from modules.admin import admin_ui
+from modules.admin.users_ui import render as render_users_ui
+
+# Iconos SVG (línea fina) para la barra lateral
+_ICO = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" '
+    'viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">{inner}</svg>'
+)
+ICO_USER = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>'
+)
+ICO_USERS_ADMIN = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.433-2.554M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>'
+)
+ICO_LOGOUT = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 007.5 18h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>'
+)
+ICO_GRID = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25a2.25 2.25 0 01-2.25 2.25H15.75a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25a2.25 2.25 0 01-2.25-2.25v-2.25z"/>'
+)
+ICO_BRIEFCASE = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2-1.75 2H5.5c-.963 0-1.75-.906-1.75-2v-4.15m18.5 0a2.25 2.25 0 00-2.25-2.25H5.25a2.25 2.25 0 00-2.25 2.25m18.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 16.308a2.25 2.25 0 01-1.07-1.916v-.243m18.5 0a2.25 2.25 0 00-2.25-2.25H5.25a2.25 2.25 0 00-2.25 2.25"/>'
+)
+ICO_CHART = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>'
+)
+ICO_SCALE = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0012 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l-2.62 10.726c-.122.499-.106 1.028.016 1.51.148.601.444 1.153.848 1.59l.004.005.005.005a2.25 2.25 0 001.856.647H18a2.25 2.25 0 002.25-2.25V6.108c0-1.198-.806-2.291-1.86-2.684M6.75 4.97A48.416 48.416 0 0112 4.5c2.291 0 4.545.16 6.75.47m-6.75-.47l-2.62 10.726c-.122.499-.106 1.028.016 1.51.148.601.444 1.153.848 1.59l.004.005.005.005a2.25 2.25 0 001.856.647H6a2.25 2.25 0 01-2.25-2.25V6.108c0-1.198.806-2.291 1.86-2.684"/>'
+)
+ICO_BUILDING = _ICO.format(
+    inner='<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008H18v-.008zm0 3h.008v.008H18V18zm-3 3h.008v.008H15V21zm0-3h.008v.008H15V18zm0-3h.008v.008H15V15zm-3 3h.008v.008H12V18zm0-3h.008v.008H12V15zm0-3h.008v.008H12V12zm-3 3h.008v.008H9V18zm0-3h.008v.008H9V15zm0-3h.008v.008H9V12zm-3 3h.008v.008H6V18zm0-3h.008v.008H6V15zm0-3h.008v.008H6V12z"/>'
+)
+
+
+def _icon_for_department(name: str) -> str:
+    n = (name or "").lower()
+    if "rrhh" in n or "humano" in n or "recursos" in n:
+        return ICO_USERS_ADMIN
+    if "venta" in n:
+        return ICO_CHART
+    if "legal" in n:
+        return ICO_SCALE
+    if "admin" in n:
+        return ICO_BRIEFCASE
+    if "general" in n:
+        return ICO_GRID
+    return ICO_BUILDING
+
+
+def _sidebar_nav_row(icon_svg: str, label: str, button_key: str, *, active: bool) -> bool:
+    """Fila de menú: columna fija con icono + botón solo con texto (evita centrado de Streamlit)."""
+    ic, bc = st.sidebar.columns([0.2, 0.8], gap="small")
+    b64 = base64.b64encode(icon_svg.encode("utf-8")).decode("ascii")
+    with ic:
+        st.markdown(
+            f'<div class="tc-nav-icon-cell">'
+            f'<img src="data:image/svg+xml;base64,{b64}" width="20" height="20" alt="" />'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    with bc:
+        return st.button(
+            label,
+            key=button_key,
+            use_container_width=True,
+            type="primary" if active else "secondary",
+        )
+
+
+def _dept_nav_key(dept: str) -> str:
+    safe = "".join(c if c.isalnum() else "_" for c in dept).strip("_")[:36]
+    return f"tc_nav_d_{safe or 'x'}"
+
+
+def _render_profile_page(
+    *,
+    full_name: str,
+    role_name: str,
+    email: str,
+    departments: list[str],
+    access_token: str,
+) -> None:
+    st.markdown(PROFILE_PAGE_CSS, unsafe_allow_html=True)
+
+    # Calcular iniciales para el avatar
+    parts = (full_name or "").strip().split()
+    if len(parts) >= 2:
+        initials = (parts[0][0] + parts[-1][0]).upper()
+    elif parts:
+        initials = parts[0][:2].upper()
+    else:
+        initials = "?"
+
+    role_label = "Administrador" if role_name == "admin" else "Usuario"
+
+    # ── Hero card ──
+    st.markdown(f"""
+    <div class="tc-profile-hero">
+        <div class="tc-profile-avatar">{initials}</div>
+        <div>
+            <p class="tc-profile-name">{full_name}</p>
+            <p class="tc-profile-email">{email}</p>
+            <span class="tc-role-badge">{role_label}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Departamentos ──
+    if departments:
+        chips_html = "".join(
+            f'<span class="tc-dept-chip">📁 {d}</span>' for d in departments
+        )
+        st.markdown(f"""
+        <div class="tc-profile-card">
+            <p class="tc-profile-section-label">Departamentos asignados</p>
+            <div class="tc-dept-chips">{chips_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Cambiar contraseña ──
+    st.markdown("""
+    <div class="tc-profile-card">
+        <div class="tc-password-section-header">
+            <span>🔒 Cambiar contraseña</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("form_change_password", clear_on_submit=True):
+        new_pw = st.text_input(
+            "Nueva contraseña",
+            type="password",
+            placeholder="Mínimo 8 caracteres",
+        )
+        confirm_pw = st.text_input(
+            "Confirmar contraseña",
+            type="password",
+            placeholder="Repite la nueva contraseña",
+        )
+        submitted = st.form_submit_button("Actualizar contraseña", type="primary")
+        if submitted:
+            if not new_pw or not confirm_pw:
+                st.error("Completa ambos campos.")
+            elif new_pw != confirm_pw:
+                st.error("Las contraseñas no coinciden.")
+            elif len(new_pw) < 8:
+                st.error("La contraseña debe tener al menos 8 caracteres.")
+            else:
+                ok, result = supabase_update_own_password(
+                    access_token=access_token, new_password=new_pw
+                )
+                if ok:
+                    st.success("✓ Contraseña actualizada correctamente.")
+                else:
+                    st.error(f"No se pudo actualizar: {result}")
+
 
 st.set_page_config(
     page_title="Total Capital Intranet",
@@ -19,157 +179,282 @@ st.set_page_config(
 # Inyectar CSS personalizado
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-# Cargar credenciales y autenticar
-config = load_credentials()
-if not config:
-    st.error(
-        "No se encontró credentials.yaml. "
-        "Copia config/credentials.yaml.example a config/credentials.yaml y configura los usuarios."
+# Sesión persistente (cookie) antes de cualquier otra pantalla
+restore_supabase_session_from_cookie()
+
+# Login / sesión con Supabase Auth
+LOGIN_EMAIL_DOMAINS: tuple[str, ...] = (
+    "banverde.com",
+    "fidalia.mx",
+    "totalcapital.mx",
+    "totaltax.mx",
+    "totalbridge.com.mx",
+    "dynovaet.com",
+)
+
+
+def _login_email_from_local_and_domain(local_part: str, domain: str) -> str:
+    """Construye el email a partir de la parte local y el dominio elegido en el formulario."""
+    raw = (local_part or "").strip().lower()
+    if not raw:
+        return ""
+    local = raw.split("@", 1)[0].strip()
+    if not local:
+        return ""
+    dom = (domain or "").strip().lower()
+    if not dom:
+        return ""
+    return f"{local}@{dom}"
+
+
+access_token = st.session_state.get("supabase_access_token")
+user_id = st.session_state.get("supabase_user_id")
+
+logo_path = Path(__file__).parent / "assets" / "logo.png"
+
+
+def _render_branding(logo_path: Path) -> None:
+    logo_b64 = ""
+    if logo_path.exists():
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+    st.markdown(
+        '<div class="login-branding-box">'
+        + (
+            f'<img src="data:image/png;base64,{logo_b64}" alt="Total Capital" class="login-branding-logo"/>'
+            if logo_b64
+            else ""
+        )
+        + '<h3 class="login-branding-title">Bienvenido a Total Capital</h3>'
+        + '<p class="login-branding-subtitle">Intranet de automatización y herramientas internas.</p>'
+        + "</div>",
+        unsafe_allow_html=True,
     )
+
+
+if not access_token or not user_id:
+    st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
+    st.markdown('<div class="login-page">', unsafe_allow_html=True)
+    col_left, col_right = st.columns([1, 1])
+    with col_left:
+        st.subheader("Iniciar sesión")
+        with st.form("form_login", clear_on_submit=True):
+            col_user, col_domain = st.columns([2, 3])
+            with col_user:
+                login_user = st.text_input(
+                    "Usuario",
+                    key="login_user",
+                    help="Solo la parte antes del @",
+                    placeholder="ej: juan.perez",
+                )
+            with col_domain:
+                login_domain = st.selectbox(
+                    "Dominio",
+                    options=LOGIN_EMAIL_DOMAINS,
+                    key="login_domain",
+                )
+            login_password = st.text_input(
+                "Contraseña",
+                type="password",
+                key="login_password",
+                placeholder="Tu contraseña",
+            )
+            submitted = st.form_submit_button("Ingresar")
+            if submitted:
+                email = _login_email_from_local_and_domain(login_user, str(login_domain))
+                if not email or not login_password:
+                    st.error("Usuario, dominio y contraseña son obligatorios.")
+                else:
+                    ok, data_or_msg = supabase_sign_in(email=email, password=login_password)
+                    if not ok:
+                        st.error(str(data_or_msg))
+                    else:
+                        data = data_or_msg
+                        access_token = data.get("access_token")
+                        user_obj = data.get("user") or {}
+                        new_user_id = user_obj.get("id")
+                        if access_token and new_user_id:
+                            st.session_state["supabase_access_token"] = access_token
+                            st.session_state["supabase_user_id"] = new_user_id
+                            st.session_state["supabase_email"] = user_obj.get("email") or email
+                            rt = data.get("refresh_token")
+                            if rt:
+                                persist_supabase_refresh_cookie(str(rt))
+                            st.rerun()
+                        else:
+                            st.error("Sesión inválida: Supabase no devolvió usuario/token.")
+
+        st.caption("Si no tienes acceso, solicita una cuenta a un administrador.")
+
+    with col_right:
+        _render_branding(logo_path)
+
+    st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
+# Usuario autenticado
 try:
-    import streamlit_authenticator as stauth
-
-    authenticator = stauth.Authenticate(
-        config["credentials"],
-        config["cookie"]["name"],
-        config["cookie"]["key"],
-        config["cookie"]["expiry_days"],
+    ok, users_rows = supabase_rest_select(
+        table_or_view="users",
+        access_token=access_token,
+        query_params={"select": "id,full_name,role_id,active", "id": f"eq.{user_id}", "limit": "1"},
     )
-
-    name = st.session_state.get("name")
-    authentication_status = st.session_state.get("authentication_status")
-    username = st.session_state.get("username")
-
-    if authentication_status is None or authentication_status is False:
-        logo_path = Path(__file__).parent / "assets" / "logo.png"
-
-        def _render_branding(logo_path):
-            logo_b64 = ""
-            if logo_path.exists():
-                with open(logo_path, "rb") as f:
-                    logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-            st.markdown(
-                '<div class="login-branding-box">'
-                + (
-                    f'<img src="data:image/png;base64,{logo_b64}" alt="Total Capital" class="login-branding-logo"/>'
-                    if logo_b64
-                    else ""
-                )
-                + '<h3 class="login-branding-title">Bienvenido a Total Capital</h3>'
-                + '<p class="login-branding-subtitle">Intranet de automatización y herramientas internas.</p>'
-                + "</div>",
-                unsafe_allow_html=True,
+    if not ok:
+        # Fallback si aún no existe la columna `active` en tu tabla.
+        if "active" in str(users_rows):
+            ok, users_rows = supabase_rest_select(
+                table_or_view="users",
+                access_token=access_token,
+                query_params={"select": "id,full_name,role_id", "id": f"eq.{user_id}", "limit": "1"},
             )
-
-        if st.query_params.get("page") == "register":
-            st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
-            st.markdown('<div class="login-page">', unsafe_allow_html=True)
-            col_left, col_right = st.columns([1, 1])
-            with col_left:
-                st.subheader("Crear cuenta")
-                st.markdown(
-                    '<p class="login-register-prompt">¿Ya tienes cuenta? <a href="?">Inicia sesión</a></p>',
-                    unsafe_allow_html=True,
-                )
-                with st.form("form_register", clear_on_submit=True):
-                    reg_username = st.text_input("Usuario", key="reg_username", placeholder="ej: mi_usuario")
-                    reg_password = st.text_input("Contraseña", type="password", key="reg_password", placeholder="Elige una contraseña")
-                    reg_name = st.text_input("Nombre (opcional)", key="reg_name", placeholder="Tu nombre")
-                    reg_department = st.selectbox(
-                        "Departamento",
-                        options=["General", "Administración", "RRHH", "Ventas"],
-                        key="reg_department",
-                    )
-                    submitted = st.form_submit_button("Registrarme")
-                    if submitted:
-                        if reg_username and reg_password:
-                            ok, msg = register_user(
-                                username=reg_username,
-                                password=reg_password,
-                                name=reg_name or reg_username,
-                                department=reg_department,
-                            )
-                            if ok:
-                                st.success(msg)
-                                st.info("Redirigiendo al inicio de sesión…")
-                                st.query_params.clear()
-                                st.rerun()
-                            else:
-                                st.error(msg)
-                        else:
-                            st.error("Usuario y contraseña son obligatorios.")
-            with col_right:
-                _render_branding(logo_path)
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.stop()
-
-        st.markdown(LOGIN_PAGE_CSS, unsafe_allow_html=True)
-        st.markdown('<div class="login-page">', unsafe_allow_html=True)
-        col_left, col_right = st.columns([1, 1])
-        with col_left:
-            st.subheader("Iniciar sesión")
-            authenticator.login("main", key="Iniciar sesión")
-            if st.session_state.get("authentication_status") is True:
-                st.rerun()
-            if authentication_status is False:
-                st.error("Usuario o contraseña incorrectos.")
-            elif authentication_status is None:
-                st.warning("Por favor ingresa tu usuario y contraseña.")
-            st.markdown("---")
-            st.markdown(
-                '<p class="login-register-prompt">¿No tienes cuenta? <a href="?page=register">Regístrate</a></p>',
-                unsafe_allow_html=True,
-            )
-        with col_right:
-            _render_branding(logo_path)
-        st.markdown("</div>", unsafe_allow_html=True)
+        if not ok:
+            raise RuntimeError(str(users_rows))
+    if not users_rows:
+        st.error("Tu usuario no existe en `public.users`. Contacta con un admin.")
+        clear_full_supabase_auth()
         st.stop()
 
-    # Usuario autenticado
-    # Barra lateral - Logo arriba del botón de cerrar sesión
-    logo_path = Path(__file__).parent / "assets" / "logo.png"
-    if logo_path.exists():
-        st.sidebar.image(str(logo_path), width=140)
-    authenticator.logout("Cerrar sesión", "sidebar")
-    st.sidebar.markdown("---")
-    st.sidebar.title("Total Capital")
-    st.sidebar.markdown(f"**Hola, {name}**")
-    st.sidebar.markdown("---")
+    user_row = users_rows[0]
+    full_name = user_row.get("full_name") or st.session_state.get("supabase_email") or user_id
+    role_id = user_row.get("role_id")
+    user_active = bool(user_row.get("active", True))
+    if not user_active:
+        st.error("Tu cuenta está desactivada. Contacta a un admin.")
+        clear_full_supabase_auth()
+        st.stop()
 
-    user_dept = get_user_department(username)
-    all_depts = ["Administración", "RRHH", "Ventas"]
-    # Si el usuario tiene departamento asignado, filtrar opciones (o mostrar solo el suyo)
-    dept_options = [user_dept] if user_dept else all_depts
-    default_idx = 0
-    if user_dept:
-        default_idx = all_depts.index(user_dept) if user_dept in all_depts else 0
-        dept_options = all_depts  # Permitir ver todos los departamentos
-
-    departamento = st.sidebar.selectbox(
-        "Departamento",
-        options=all_depts,
-        index=default_idx,
-        help="Selecciona el departamento para acceder a sus herramientas.",
+    ok, role_rows = supabase_rest_select(
+        table_or_view="roles",
+        access_token=access_token,
+        query_params={"select": "name", "id": f"eq.{role_id}", "limit": "1"},
     )
+    role_name = "user"
+    if ok and role_rows:
+        role_name = role_rows[0].get("name") or "user"
+
+    # Departamentos disponibles para el usuario
+    departamento_options: list[str] = []
+    if role_name == "admin":
+        ok, dept_rows = supabase_rest_select(
+            table_or_view="departments",
+            access_token=access_token,
+            query_params={"select": "name", "order": "name"},
+        )
+        if ok:
+            departamento_options = [str(r.get("name")) for r in dept_rows if r.get("name")]
+    else:
+        ok, ud_rows = supabase_rest_select(
+            table_or_view="user_departments",
+            access_token=access_token,
+            query_params={"select": "department_id", "user_id": f"eq.{user_id}"},
+        )
+        dept_ids = []
+        if ok:
+            for r in ud_rows:
+                if r.get("department_id"):
+                    dept_ids.append(str(r["department_id"]))
+
+        if dept_ids:
+            ids_param = ",".join(dept_ids)
+            ok, dept_rows = supabase_rest_select(
+                table_or_view="departments",
+                access_token=access_token,
+                query_params={"select": "name", "id": f"in.({ids_param})", "order": "name"},
+            )
+            if ok:
+                departamento_options = [str(r.get("name")) for r in dept_rows if r.get("name")]
+
+    if not departamento_options:
+        st.warning("No se encontraron departamentos para tu usuario.")
+        st.stop()
+
+    # Navegación lateral
+    if "nav_main" not in st.session_state:
+        st.session_state["nav_main"] = "tools"
+    if "nav_department" not in st.session_state:
+        st.session_state["nav_department"] = departamento_options[0]
+
+    if st.session_state["nav_department"] not in departamento_options:
+        st.session_state["nav_department"] = departamento_options[0]
+
+    if st.session_state["nav_main"] == "users" and role_name != "admin":
+        st.session_state["nav_main"] = "tools"
+        st.session_state["nav_department"] = departamento_options[0]
+
+    # ——— Barra lateral (estilo limpio: marca, menú con iconos, logout abajo) ———
+    if logo_path.exists():
+        st.sidebar.image(str(logo_path), width=108)
+    st.sidebar.caption(f"{full_name} · {role_name}")
+    st.sidebar.markdown('<p class="tc-sidebar-section-label">Menú</p>', unsafe_allow_html=True)
+
+    nm = st.session_state["nav_main"]
+    nd = st.session_state["nav_department"]
+    # Los botones se dibujan antes de que este bloque actualice session_state; sin rerun,
+    # el tipo primary/activo queda un paso atrás respecto al contenido principal.
+    _nav_updated = False
+
+    if _sidebar_nav_row(ICO_USER, "Perfil", "tc_nav_profile", active=(nm == "profile")):
+        st.session_state["nav_main"] = "profile"
+        _nav_updated = True
+
+    for dept in departamento_options:
+        if _sidebar_nav_row(
+            _icon_for_department(dept),
+            dept,
+            _dept_nav_key(dept),
+            active=(nm == "tools" and nd == dept),
+        ):
+            st.session_state["nav_main"] = "tools"
+            st.session_state["nav_department"] = dept
+            _nav_updated = True
+
+    if role_name == "admin":
+        if _sidebar_nav_row(
+            ICO_USERS_ADMIN,
+            "Usuarios",
+            "tc_nav_users",
+            active=(nm == "users"),
+        ):
+            st.session_state["nav_main"] = "users"
+            _nav_updated = True
+
+    if _nav_updated:
+        st.rerun()
 
     st.sidebar.markdown("---")
     st.sidebar.caption("Intranet de Automatización v1.0")
 
-    # Enrutamiento según departamento seleccionado
-    MODULES = {
-        "Administración": admin_ui.render,
-        "RRHH": lambda: st.info("Módulo RRHH - Próximamente."),
-        "Ventas": lambda: st.info("Módulo Ventas - Próximamente."),
-    }
+    if _sidebar_nav_row(ICO_LOGOUT, "Cerrar sesión", "tc_nav_logout", active=False):
+        clear_full_supabase_auth()
+        st.rerun()
 
-    render_fn = MODULES.get(departamento)
-    if render_fn:
-        render_fn()
+    nav_main = st.session_state["nav_main"]
+    nav_department = st.session_state["nav_department"]
+    user_email = st.session_state.get("supabase_email") or ""
+
+    if nav_main == "profile":
+        _render_profile_page(
+            full_name=full_name,
+            role_name=role_name,
+            email=user_email,
+            departments=departamento_options,
+            access_token=access_token,
+        )
+    elif nav_main == "users":
+        render_users_ui(access_token=access_token, current_user_id=user_id)
     else:
-        st.warning("Selecciona un departamento en la barra lateral.")
+        MODULES = {
+            "Administración": admin_ui.render,
+            "RRHH": lambda: st.info("Módulo RRHH - Próximamente."),
+            "Ventas": lambda: st.info("Módulo Ventas - Próximamente."),
+            "Legal": lambda: st.info("Módulo Legal - Próximamente."),
+        }
 
+        render_fn = MODULES.get(nav_department)
+        if render_fn:
+            render_fn()
+        else:
+            st.warning(f"No hay módulo implementado para: {nav_department}")
 except Exception as e:
-    st.error(f"Error al cargar autenticación: {e}")
-    st.info("Verifica que config/credentials.yaml existe y tiene el formato correcto.")
+    st.error(f"Error al cargar sesión Supabase: {e}")
+    st.info("Revisa que las tablas `public.users`, `public.roles`, `public.departments` y `public.user_departments` existan y que RLS permita leer los datos del usuario.")
