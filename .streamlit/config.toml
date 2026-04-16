@@ -1,0 +1,11 @@
+[server]
+headless = true
+runOnSave = true
+# sslCertFile = "/path/to/cert.pem"  # Uncomment and set path when using HTTPS
+# sslKeyFile = "/path/to/key.pem"   # Uncomment and set path when using HTTPS
+
+[client]
+showErrorDetails = false
+
+[logger]
+level = "warning"

@@ -5,11 +5,25 @@ import re
 import streamlit as st
 import pandas as pd
 from modules.admin import admin_logic
+from config.email_sender import is_email_configured, send_email_with_attachment
+from config.theme import ADMIN_MODULE_CSS
 
-# Bancos disponibles
-BANCOS = {
+# Mapa: nombre visible en UI → clave interna de banco
+BANCOS: dict[str, str] = {
     "Banco VE POR MAS": admin_logic.BANCO_VE_POR_MAS,
 }
+
+
+def validate_csv_upload(file) -> tuple[bool, str]:
+    """Validate file before processing."""
+    MAX_SIZE = 10 * 1024 * 1024  # 10MB
+    ALLOWED_TYPES = {'csv', 'text/csv', 'application/csv'}
+    
+    if file.size > MAX_SIZE:
+        return False, "Archivo > 10MB"
+    if file.name.split('.')[-1].lower() != 'csv':
+        return False, "Solo archivos CSV permitidos"
+    return True, ""
 
 
 def _sanitize_sheet_name(name: str, max_len: int = 31) -> str:
@@ -25,8 +39,17 @@ def render():
     if "admin_results" not in st.session_state:
         st.session_state.admin_results = {}
 
-    st.title("Administración")
-    st.markdown("Procesamiento de estados de cuenta bancarios (CSV).")
+    st.markdown(ADMIN_MODULE_CSS, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="tc-admin-header">
+        <div class="tc-admin-header-icon">🏦</div>
+        <div class="tc-admin-header-text">
+            <h2>Administración</h2>
+            <p>Procesamiento de estados de cuenta bancarios (CSV → Excel)</p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     uploaded_files = st.file_uploader(
         "Sube uno o varios archivos CSV",
@@ -48,6 +71,18 @@ def render():
                 "header_row": 10,
             }
 
+    # Validar archivos
+    invalid_files = []
+    for f in uploaded_files:
+        valid, msg = validate_csv_upload(f)
+        if not valid:
+            invalid_files.append(f"{f.name}: {msg}")
+    
+    if invalid_files:
+        for msg in invalid_files:
+            st.error(msg)
+        st.stop()
+
     # Formulario por cada archivo
     for uploaded_file in uploaded_files:
         settings = st.session_state.admin_file_settings[uploaded_file.name]
@@ -55,8 +90,8 @@ def render():
             col1, col2 = st.columns(2)
             with col1:
                 bank_options = list(BANCOS.keys())
-            bank_index = bank_options.index(settings["bank"]) if settings["bank"] in bank_options else 0
-            new_bank = st.selectbox(
+                bank_index = bank_options.index(settings["bank"]) if settings["bank"] in bank_options else 0
+                new_bank = st.selectbox(
                     "Banco",
                     options=bank_options,
                     index=bank_index,
@@ -104,8 +139,14 @@ def render():
 
     # Descarga combinada si hay resultados
     if st.session_state.admin_results:
-        st.markdown("---")
-        st.subheader("Descargar resultados")
+        n = len(st.session_state.admin_results)
+        st.markdown(f"""
+        <div class="tc-download-section">
+            <span class="tc-result-badge">✓ {n} archivo{"s" if n != 1 else ""} procesado{"s" if n != 1 else ""}</span>
+            <h3>Descargar resultados</h3>
+        </div>
+        """, unsafe_allow_html=True)
+
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             for filename, result_df in st.session_state.admin_results.items():
@@ -113,7 +154,7 @@ def render():
                 result_df.to_excel(writer, index=False, sheet_name=sheet_name)
         output.seek(0)
         st.download_button(
-            label="Descargar todo (Excel con varias hojas)",
+            label="⬇ Descargar todo (Excel con varias hojas)",
             data=output,
             file_name="estados_cuenta_procesados.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
