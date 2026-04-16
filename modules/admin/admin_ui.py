@@ -8,6 +8,12 @@ from modules.admin import admin_logic
 from config.email_sender import is_email_configured, send_email_with_attachment
 from config.theme import ADMIN_MODULE_CSS
 
+# Mapa: nombre visible en UI → clave interna de banco
+BANCOS: dict[str, str] = {
+    "Banco VE POR MAS": admin_logic.BANCO_VE_POR_MAS,
+}
+
+
 def validate_csv_upload(file) -> tuple[bool, str]:
     """Validate file before processing."""
     MAX_SIZE = 10 * 1024 * 1024  # 10MB
