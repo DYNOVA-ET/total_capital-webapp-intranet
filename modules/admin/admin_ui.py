@@ -26,6 +26,43 @@ def validate_csv_upload(file) -> tuple[bool, str]:
     return True, ""
 
 
+def _read_bank_csv(uploaded_file, header_idx: int) -> pd.DataFrame:
+    """Lee CSV delimitado por coma o punto y coma (inferencia + fallback)."""
+    def _load(encoding: str, sep: str | None) -> pd.DataFrame:
+        uploaded_file.seek(0)
+        if sep is None:
+            return pd.read_csv(
+                uploaded_file,
+                encoding=encoding,
+                header=header_idx,
+                sep=None,
+                engine="python",
+            )
+        return pd.read_csv(uploaded_file, encoding=encoding, header=header_idx, sep=sep)
+
+    def _needs_semicolon_fallback(df: pd.DataFrame) -> bool:
+        if df.shape[1] != 1:
+            return False
+        if ";" in str(df.columns[0]):
+            return True
+        if len(df) > 0:
+            v = df.iat[0, 0]
+            if pd.notna(v) and ";" in str(v):
+                return True
+        return False
+
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            df = _load(encoding, None)
+            if _needs_semicolon_fallback(df):
+                df = _load(encoding, ";")
+            return df
+        except UnicodeDecodeError:
+            continue
+
+    raise RuntimeError("No se pudo leer el CSV con utf-8 ni latin-1.")
+
+
 def _sanitize_sheet_name(name: str, max_len: int = 31) -> str:
     """Nombre de hoja Excel válido (sin caracteres prohibidos)."""
     name = re.sub(r'[\\/*?:\[\]]', '', name)
@@ -115,10 +152,7 @@ def render():
             bank_key = BANCOS[new_bank]
             header_idx = header_row - 1 if bank_key == admin_logic.BANCO_VE_POR_MAS else 0
 
-            try:
-                df = pd.read_csv(uploaded_file, encoding="utf-8", header=header_idx)
-            except UnicodeDecodeError:
-                df = pd.read_csv(uploaded_file, encoding="latin-1", header=header_idx)
+            df = _read_bank_csv(uploaded_file, header_idx)
 
             st.dataframe(df.head(10), use_container_width=True, height=200)
 
