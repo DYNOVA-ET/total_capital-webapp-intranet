@@ -116,9 +116,16 @@ def render():
             header_idx = header_row - 1 if bank_key == admin_logic.BANCO_VE_POR_MAS else 0
 
             try:
-                df = pd.read_csv(uploaded_file, encoding="utf-8", header=header_idx)
+                df = pd.read_csv(
+                    uploaded_file, encoding="utf-8", header=header_idx,
+                    sep=None, engine="python",
+                )
             except UnicodeDecodeError:
-                df = pd.read_csv(uploaded_file, encoding="latin-1", header=header_idx)
+                uploaded_file.seek(0)
+                df = pd.read_csv(
+                    uploaded_file, encoding="latin-1", header=header_idx,
+                    sep=None, engine="python",
+                )
 
             st.dataframe(df.head(10), use_container_width=True, height=200)
 
