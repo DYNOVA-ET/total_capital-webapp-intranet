@@ -562,5 +562,7 @@ try:
         else:
             st.warning(f"No hay módulo implementado para: {nav_department}")
 except Exception as e:
-    st.error(f"Error al cargar sesión Supabase: {e}")
-    st.info("Revisa que las tablas `public.users`, `public.roles`, `public.departments` y `public.user_departments` existan y que RLS permita leer los datos del usuario.")
+    import traceback
+    st.error(f"Error inesperado: {e}")
+    with st.expander("Ver detalle del error"):
+        st.code(traceback.format_exc())
