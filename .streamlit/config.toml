@@ -1,11 +1,9 @@
 [server]
 headless = true
 runOnSave = true
-# sslCertFile = "/path/to/cert.pem"  # Uncomment and set path when using HTTPS
-# sslKeyFile = "/path/to/key.pem"   # Uncomment and set path when using HTTPS
-
-[client]
-showErrorDetails = false
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 10
 
 [logger]
 level = "warning"
