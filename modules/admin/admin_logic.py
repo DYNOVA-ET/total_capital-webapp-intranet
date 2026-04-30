@@ -25,14 +25,28 @@ tags = {
 
 }
 
+
+def _monto_salida_positivo(val):
+    """Retiros como valor positivo: numérico con abs; texto sin '-' inicial."""
+    if pd.isna(val):
+        return pd.NA
+    num = pd.to_numeric(val, errors="coerce")
+    if pd.notna(num):
+        return abs(float(num))
+    s = str(val).strip()
+    while s.startswith("-"):
+        s = s[1:].lstrip()
+    return s if s else pd.NA
+
+
 def process_ve_por_mas(df: pd.DataFrame) -> pd.DataFrame:
     """
     Procesa CSV del Banco VE POR MAS.
     - Headers en fila 10
-    - Output: FECHA, CONCEPTO (extraído de DESCRIPCIÓN, solo lo que está después de "CONCEPTO:")
+    - Output: Fecha, Entrada, Salida, Concepto (Concepto extraído de DESCRIPCIÓN).
     """
     if df.empty:
-        return pd.DataFrame(columns=["FECHA", "CONCEPTO", "MONTO"])
+        return pd.DataFrame(columns=["Fecha", "Entrada", "Salida", "Concepto"])
 
     # Detectar columna FECHA (mismo nombre en el CSV)
     fecha_col = None
@@ -113,29 +127,30 @@ def process_ve_por_mas(df: pd.DataFrame) -> pd.DataFrame:
             return f"{operacion} {tag_final}"  #regresamos la operacion con el tag 
         return text
 
-    result = pd.DataFrame()
-    result["FECHA"] = df[fecha_col]
-    result["CONCEPTO"] = df[desc_col].apply(extract_concepto)
-    
-
-    #funcion para obtner el monto de la transacción
-    def obtener_monto_transaccion(row): 
-        #Obtener valores de las columnas de retiros y depositos
-        retiro = row[retiros_col]       
-        deposito = row[deposito_col]
-        
-        #devolver el valor de la columna retiro o deposito 
-        if pd.notna(retiro) and str(retiro).strip() != "":
-            return retiro
-        if pd.notna(deposito) and str(deposito).strip() != "":
-            return deposito
-            
+    def _pick_entrada(row: pd.Series):
+        v = row[deposito_col]
+        if pd.notna(v) and str(v).strip() != "":
+            return v
         return pd.NA
 
-    result["MONTO"] = df.apply(obtener_monto_transaccion, axis=1)
+    def _pick_salida(row: pd.Series):
+        v = row[retiros_col]
+        if pd.notna(v) and str(v).strip() != "":
+            return _monto_salida_positivo(v)
+        return pd.NA
+
+    result = pd.DataFrame(
+        {
+            "Fecha": df[fecha_col],
+            "Entrada": df.apply(_pick_entrada, axis=1),
+            "Salida": df.apply(_pick_salida, axis=1),
+            "Concepto": df[desc_col].apply(extract_concepto),
+        }
+    )
+    result = result[["Fecha", "Entrada", "Salida", "Concepto"]]
 
     # Quitar filas vacías
-    result = result.dropna(subset=["FECHA"], how="all")
+    result = result.dropna(subset=["Fecha"], how="all")
     result = result.replace(r"^\s*$", pd.NA, regex=True)
     result = result.dropna(how="all")
 
