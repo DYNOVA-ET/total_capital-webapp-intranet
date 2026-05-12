@@ -5,24 +5,25 @@ import pandas as pd
 
 # Constantes por banco
 BANCO_VE_POR_MAS = "ve_por_mas"
-BANCO_VE_POR_MAS_HEADER_ROW = 9  # Los nombres de columnas están en la línea 10 (índice 9)
+BANCO_VE_POR_MAS_HEADER_ROW = (
+    9  # Los nombres de columnas están en la línea 10 (índice 9)
+)
 
-#diccionario con id y tags
+# diccionario con id y tags
 tags = {
-    "00000368682":"DGE USD",
-    "00000712825":"DGE MXN",
-    "00000469012":"BSI USD",
-    "00000712804":"BSI MXN",
-    "00000391197":"DGP USD",
-    "00000712791":"DGP MXN",
-    "00000642340":"SVC USD",
-    "00000712833":"SVC MXN",
-    "25600585353":"BSI MXN SC",
-    "25601044520":"BSI MXN SC 2",
-    "95600019492":"BSI USD SC",
-    "95600993391":"BSI USD SC 2",
-    "0124988817" : "DGP BBVA"
-
+    "00000368682": "DGE USD",
+    "00000712825": "DGE MXN",
+    "00000469012": "BSI USD",
+    "00000712804": "BSI MXN",
+    "00000391197": "DGP USD",
+    "00000712791": "DGP MXN",
+    "00000642340": "SVC USD",
+    "00000712833": "SVC MXN",
+    "25600585353": "BSI MXN SC",
+    "25601044520": "BSI MXN SC 2",
+    "95600019492": "BSI USD SC",
+    "95600993391": "BSI USD SC 2",
+    "0124988817": "DGP BBVA",
 }
 
 
@@ -66,7 +67,7 @@ def process_ve_por_mas(df: pd.DataFrame) -> pd.DataFrame:
     if desc_col is None:
         raise ValueError("No se encontró la columna DESCRIPCIÓN en el CSV.")
 
-    #detectar las columnas de retiros y depositos    
+    # detectar las columnas de retiros y depositos
     retiros_col = None
     deposito_col = None
     for col in df.columns:
@@ -75,57 +76,111 @@ def process_ve_por_mas(df: pd.DataFrame) -> pd.DataFrame:
             retiros_col = col
         if "depósitos" in col_lowe:
             deposito_col = col
-    if retiros_col is None or deposito_col is None:  #validación en caso de que no se encuentren las columnas 
-        raise ValueError("No se encontraron las columnas RETIROS o DEPOSITOS en el CSV.")
+    if (
+        retiros_col is None or deposito_col is None
+    ):  # validación en caso de que no se encuentren las columnas
+        raise ValueError(
+            "No se encontraron las columnas RETIROS o DEPOSITOS en el CSV."
+        )
 
     # Extraer CONCEPTO: texto después de "CONCEPTO:" hasta el siguiente " PALABRA:" o " PALABRA PALABRA:"
     # Ej: "CONCEPTO: IMPACTA REFERENCIA: 1 BENEFICIARIO: ..." -> solo "IMPACTA"
     # Split por el patrón " PALABRA:" (espacio + palabra + dos puntos)
-    _FIELD_PATTERN = re.compile(r"\s+[A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)*\s*:")
+    _FIELD_PATTERN = re.compile(r"\s+[A-Za-z0-9_]+(?:\s+[A-Za-z0-9_]+)?\s*:")
 
     def extract_concepto(text):
         if pd.isna(text):
             return ""
         text = str(text).strip()
-        idx = text.upper().find("CONCEPTO:") #buscamos la palabra concepto
+        idx = text.upper().find("CONCEPTO:")  # buscamos la palabra concepto
 
-        if idx >= 0:  #si encontro "CONCEPTO:"
+        if idx >= 0:  # si encontro "CONCEPTO:"
             after = text[idx + 9 :].strip()
             parts = _FIELD_PATTERN.split(after)
             clean_text = parts[0].strip() if parts else after
-            
+
             palabras = clean_text.split()
             if palabras:
-                ultimo_pedazo = palabras[-1]  #como el id siempre esta al final lo sacamos y lo guardamos para buscarlo en diccionario
-                
-                #verificamops si la ultima palabra es un id dentro del diccionario
+                ultimo_pedazo = palabras[
+                    -1
+                ]  # como el id siempre esta al final lo sacamos y lo guardamos para buscarlo en diccionario
+
+                # verificamops si la ultima palabra es un id dentro del diccionario
                 if ultimo_pedazo in tags:
                     tag_correspondiente = tags[ultimo_pedazo]
-                    texto_sin_codigo = clean_text.replace("CODIGO", "").replace("CLIENTE", "") #borramos "CODIGO" y "CLIENTE"
-                    texto_final = texto_sin_codigo.replace(ultimo_pedazo, tag_correspondiente)
+                    texto_sin_codigo = clean_text.replace("CODIGO", "").replace(
+                        "CLIENTE", ""
+                    )  # borramos "CODIGO" y "CLIENTE"
+                    texto_final = texto_sin_codigo.replace(
+                        ultimo_pedazo, tag_correspondiente
+                    )
                     return " ".join(texto_final.split())
-        
+
             return clean_text
 
-        #se busca sobre el texto, tenga o no "CONCEPTO"
-        #si no encontro concepto busca traspaso o recepcion
+        # se busca sobre el texto, tenga o no "CONCEPTO"
+        # si no encontro "concepto" busca traspaso o recepcion
         idx_traspaso = text.upper().find("TRASPASO")
         idx_recepcion = text.upper().find("RECEPCION")
 
-        if idx_traspaso >= 0 or idx_recepcion >= 0:  
-            #si alguna de las dos existe buscamos recepcion primero por que en las 
-            #de recepcion tambien se encuentra la palabra traspaso
-            if idx_recepcion >= 0: 
+        if idx_traspaso >= 0 or idx_recepcion >= 0:
+            # si alguna de las dos existe buscamos recepcion primero por que en las
+            # de recepcion tambien se encuentra la palabra traspaso
+            if idx_recepcion >= 0:
                 operacion = "RECEPCION"
             else:
                 operacion = "TRASPASO"
 
-            parts = text.split()  
+            parts = text.split()
             id_banco = parts[-1]
 
             tag_final = tags.get(id_banco, id_banco)
-            return f"{operacion} {tag_final}"  #regresamos la operacion con el tag 
+            return f"{operacion} {tag_final}"  # regresamos la operacion con el tag
         return text
+
+    # extraer Ordenante
+    def extract_ordenante(text):
+        if pd.isna(text):
+            return ""
+        text = str(text).strip()
+
+        # buscar CTA ORDENANTE
+        idx = text.upper().find("ORDENANTE:")
+        if idx >= 0:
+            after = text[idx + 14 :].strip()  # 14 = len("CTA ORDENANTE:")
+            # Tomar hasta el siguiente campo o fin de línea
+            parts = _FIELD_PATTERN.split(after)
+            cta_value = parts[0].strip() if parts else after
+            # Verificar si es numérico (cuenta)
+            if cta_value.replace(" ", "").isdigit():
+                return cta_value
+        return ""
+
+    # extraer Beneficiario
+    def extract_beneficiario(text):
+        if pd.isna(text):
+            return ""
+        text = str(text).strip()
+
+        # Primero buscar campo "BENEFICIARIO:"
+        idx = text.upper().find("BENEFICIARIO:")
+        if idx >= 0:
+            after = text[idx + 13 :].strip()  # 13 = len("BENEFICIARIO:")
+            parts = _FIELD_PATTERN.split(after)
+            return parts[0].strip() if parts else after
+
+        # Si no hay "BENEFICIARIO:", buscar el último ORDENANTE: — en las SPEI entrantes
+        # hay dos: "CTA ORDENANTE: <número>  ORDENANTE: <nombre>", el último tiene el nombre
+        idx_ord = text.upper().rfind("ORDENANTE:")
+        if idx_ord >= 0:
+            after_ord = text[idx_ord + 10 :].strip()  # 10 = len("ORDENANTE:")
+            parts_ord = _FIELD_PATTERN.split(after_ord)
+            ordenante_value = parts_ord[0].strip() if parts_ord else after_ord
+            # Solo retornar si no es número puro (el número lo maneja extract_ordenante)
+            if not ordenante_value.replace(" ", "").isdigit():
+                return ordenante_value
+
+        return ""
 
     def _pick_entrada(row: pd.Series):
         v = row[deposito_col]
@@ -145,9 +200,13 @@ def process_ve_por_mas(df: pd.DataFrame) -> pd.DataFrame:
             "Entrada": df.apply(_pick_entrada, axis=1),
             "Salida": df.apply(_pick_salida, axis=1),
             "Concepto": df[desc_col].apply(extract_concepto),
+            "Ordenante": df[desc_col].apply(extract_ordenante),
+            "Beneficiario": df[desc_col].apply(extract_beneficiario),
         }
     )
-    result = result[["Fecha", "Entrada", "Salida", "Concepto"]]
+    result = result[
+        ["Fecha", "Entrada", "Salida", "Concepto", "Ordenante", "Beneficiario"]
+    ]
 
     # Quitar filas vacías
     result = result.dropna(subset=["Fecha"], how="all")
